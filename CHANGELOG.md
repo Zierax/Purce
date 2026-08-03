@@ -5,67 +5,85 @@ All notable changes to Purce will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.1.0] - 2026-07-26
+## [0.1.0] - 2026-07-28
 
 ### Added
 
 #### Core Pipeline
 - **Math-IR**: Custom intermediate representation (DAG-based, language-agnostic)
   - `MathIRNode` with full provenance tracking
-  - `MathIRGraph` with topological sort and cycle detection
+  - `MathIRGraph` with iterative topological sort and cycle detection
   - Dependency classification (MATH_KERNEL, SYSTEM_PAL, DATA_ASSET, META_UTIL)
 - **Python Parser**: Extracts math kernels from Python/NumPy source
-  - Supports 20+ NumPy operations (MVP subset)
+  - Supports 25+ NumPy operations
   - Type hint extraction (float32, float64, int32, int64)
   - Structured diagnostics for unsupported constructs
 - **Semantic Slicer**: Call graph analysis and dead code elimination
   - Reachability analysis from entry points
   - Transitive dependency resolution (3+ levels deep)
   - DAG validation (cycle detection, missing dependency detection)
-- **C99 Backend**: Jinja2-based code generation
+- **C99 Backend**: Programmatic code generation (no template engine)
   - C99-SOS compliant output (file headers, function headers, naming)
   - Zero heap allocation in math kernels
-  - Q31/Q15 fixed-point support
-  - Provenance JSON for every .c file
+  - Provenance metadata in every generated file
   - Auto-generated CMakeLists.txt
 
-#### Supported Operations
-- **Linear Algebra**: `matmul`, `linalg_solve`, `linalg_inv`, `linalg_cholesky`, `linalg_eig`
-- **Element-wise**: `element_add`, `element_sub`, `element_mul`, `element_div`
-- **Reductions**: `reduce_sum`, `reduce_mean`, `reduce_max`, `reduce_min`
-- **FFT**: `fft` (Cooley-Tukey), `ifft`
-- **Allocation**: `alloc_zeros`, `alloc_ones`, `alloc_eye`
+#### Supported Operations (25)
+- **Element-wise**: add, sub, mul, div, neg, abs, sqrt, exp, log, sin, cos, tan, power
+- **Reductions**: sum, mean, max, min
+- **Matrix**: matmul, transpose
+- **Linear algebra**: solve, inverse, determinant, cholesky, eig
+- **Signal processing**: fft, ifft
+- **Sorting**: sort
+- **Allocation**: zeros, ones, eye
 
 #### Verification
-- **Z3 SMT Verifier**: Bounds checking for all operations
-  - Dimension bounds verification
-  - Division by zero detection
-  - Overflow checks
-  - Non-singular matrix checks
-  - FFT power-of-two constraints
-- **Differential Fuzzer**: Property-based testing
+- **Z3 SMT Verifier**: Symbolic verification for all operations
+  - Dimension bounds, division-by-zero, overflow, non-singular, FFT power-of-two
+- **Differential Fuzzer**: 25 operations, 200 iterations each
   - Random input generation via Hypothesis
-  - Python reference comparison
-  - Configurable tolerance (rtol, atol)
-  - 10,000 iterations per operation
+  - Python reference comparison with configurable tolerance
+- **5-Phase Verification Agent**:
+  1. Unit tests (174+)
+  2. Fuzz tests (25 ops × 200 iterations = 5,000 test cases)
+  3. Pipeline integration (real-world ML sources)
+  4. Synthetic pipeline sanity checks
+  5. Memory safety verification (heap-free, provenance)
 
 #### CLI
 - `purce extract`: Library extraction mode
 - `purce compile`: User code compilation mode
 - `purce verify`: Full verification suite
 - Target profiles: `generic-c99`, `bare-arm-q31`, `bare-arm-q15`
-- Flags: `--embed-assets`, `--amalgamate`, `--verbose`, `--provenance-only`
 
 #### Testing
-- 119 tests across 6 test modules
+- 174 tests across 8 test modules
 - 100% pass rate
-- Test fixtures for all MVP operations
+- Real-world test projects: 14 ML modules (210+ functions)
+- Extra patterns: transformer, RNN, conv1d, batch norm, focal loss, AdamW
+
+#### Benchmarks
+- Numerical accuracy: 87,000 iterations across 25 operations
+- Performance scaling: real gcc -O2 compilation (6x-303x speedup)
+- Edge cases: 50 IEEE 754 test cases
+- Code quality: cyclomatic complexity, LOC, structural analysis
 
 #### Documentation
-- Comprehensive README with architecture diagram
-- API reference documentation
+- Architecture guide with pipeline diagram
+- API reference
+- User guide (quick start, memory model, targets)
+- Testing guide
 - Contributing guide
-- Benchmark results
+
+#### CI/CD
+- GitHub Actions workflow (Python 3.11/3.12/3.13)
+- Test matrix with fuzz verification
+- Type checking with mypy
+
+#### Developer Tooling
+- Pre-commit hook (tests + fuzz + TODO check)
+- Setup script for new contributors
+- PEP 561 type marker (py.typed)
 
 ### Fixed
 - N/A (initial release)
@@ -88,24 +106,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Planned
 
-#### Phase 2 Features
-- C++ parser via libclang
-- libcst integration for Python mutation
-- Amalgamated single-file output (like SQLite)
+#### v0.2.0 — Extended Operations
+- `element_pow` (np.power) — most common unsupported op
+- `np.dot` for >2D arrays
+- `np.einsum` (generalized tensor contraction)
+- `np.clip` / `np.where` (conditional element-wise)
+- `np.sort` with multiple algorithms (quicksort, mergesort, heapsort)
+
+#### v0.3.0 — Code Generation Improvements
 - SIMD-optimized kernels (SSE, AVX, NEON)
 - OpenMP parallelization support
-- Additional NumPy operations (dot for >2D, einsum, etc.)
-
-#### Phase 3 Features
+- Amalgamated single-file output (like SQLite)
 - Custom target profiles (user-defined type mappings)
+
+#### v0.4.0 — Tooling
 - Plugin system for custom algorithms
 - WebAssembly target
-- Rust backend
-- Interactive mode (REPL)
-
-#### Phase 4 Features
-- Integration with CI/CD pipelines
 - Docker container for reproducible builds
-- Package registry for generated C libraries
 - IDE plugin (VS Code)
-- Online playground
