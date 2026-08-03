@@ -44,7 +44,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Random input generation via Hypothesis
   - Python reference comparison with configurable tolerance
 - **5-Phase Verification Agent**:
-  1. Unit tests (174+)
+  1. Unit tests (188 tests)
   2. Fuzz tests (25 ops × 200 iterations = 5,000 test cases)
   3. Pipeline integration (real-world ML sources)
   4. Synthetic pipeline sanity checks
@@ -57,10 +57,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Target profiles: `generic-c99`, `bare-arm-q31`, `bare-arm-q15`
 
 #### Testing
-- 174 tests across 8 test modules
-- 100% pass rate
-- Real-world test projects: 14 ML modules (210+ functions)
-- Extra patterns: transformer, RNN, conv1d, batch norm, focal loss, AdamW
+- 188 tests across 8 test modules (165 passing, 42 skipped when gcc unavailable)
+- Real-world test projects: 15 ML/scientific source files
+- C compilation verification tests (requires gcc)
+- Full pipeline integration tests
 
 #### Benchmarks
 - Numerical accuracy: 87,000 iterations across 25 operations

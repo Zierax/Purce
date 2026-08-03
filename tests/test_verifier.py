@@ -285,7 +285,8 @@ class TestZ3Verifier:
         node = _make_node("element_add")
         report = verifier.verify_node(node)
         assert report.node_id == "test_element_add"
-        assert len(report.conditions) > 0
+        assert len(report.conditions) >= 1
+        assert report.violated_count + report.verified_count == len(report.conditions)
 
     def test_matmul(self) -> None:
         verifier = Z3Verifier()
@@ -297,6 +298,7 @@ class TestZ3Verifier:
         report = verifier.verify_node(node)
         assert report.node_id == "test_matmul"
         assert len(report.conditions) >= 1
+        assert report.violated_count + report.verified_count == len(report.conditions)
 
     def test_linalg_solve(self) -> None:
         verifier = Z3Verifier()
@@ -307,6 +309,9 @@ class TestZ3Verifier:
         )
         report = verifier.verify_node(node)
         assert len(report.conditions) >= 2
+        known = report.violated_count + report.verified_count
+        unknown = sum(1 for c in report.conditions if c.result == "UNKNOWN")
+        assert known + unknown == len(report.conditions)
 
     def test_fft(self) -> None:
         verifier = Z3Verifier()
@@ -317,6 +322,7 @@ class TestZ3Verifier:
         )
         report = verifier.verify_node(node)
         assert len(report.conditions) >= 1
+        assert report.violated_count + report.verified_count == len(report.conditions)
 
     def test_verify_graph(self) -> None:
         verifier = Z3Verifier()
@@ -329,6 +335,9 @@ class TestZ3Verifier:
         assert len(reports) == 2
         assert "test_element_add" in reports
         assert "test_reduce_sum" in reports
+        for report in reports.values():
+            assert len(report.conditions) >= 1
+            assert report.violated_count + report.verified_count == len(report.conditions)
 
     def test_z3_available(self) -> None:
         verifier = Z3Verifier()

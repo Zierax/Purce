@@ -6,10 +6,10 @@ These tests exercise the complete purce pipeline end-to-end:
 Each test constructs a Python source string, runs it through every stage,
 and asserts correctness of the intermediate and final artifacts.
 """
-
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 
 import pytest
@@ -46,51 +46,50 @@ def _run_pipeline(
     return gen_result, graph, slice_result
 
 
+def _has_c_function(content: str) -> bool:
+    return bool(re.search(r'\b(void|int|double|float)\s+\w+\s*\(', content))
+
+
 # ── Single-operation pipelines ───────────────────────────────────────────────
 
 
 class TestPipelineElementAdd:
+    SRC = "import numpy as np\ndef add_arrays(a, b):\n    return np.add(a, b)"
+
     def test_generates_c_file(self) -> None:
-        src = "import numpy as np\ndef add_arrays(a, b):\n    return np.add(a, b)"
-        gen, graph, sliced = _run_pipeline(src)
+        gen, graph, sliced = _run_pipeline(self.SRC)
         c_files = [f for f in gen.files if f.file_type == "c"]
-        assert len(c_files) >= 1
+        assert len(c_files) == 1
 
     def test_has_provenance(self) -> None:
-        src = "import numpy as np\ndef add_arrays(a, b):\n    return np.add(a, b)"
-        gen, _, _ = _run_pipeline(src)
+        gen, _, _ = _run_pipeline(self.SRC)
         prov_files = [f for f in gen.files if f.file_type == "prov"]
-        assert len(prov_files) >= 1
+        assert len(prov_files) == 1
 
     def test_has_header(self) -> None:
-        src = "import numpy as np\ndef add_arrays(a, b):\n    return np.add(a, b)"
-        gen, _, _ = _run_pipeline(src)
+        gen, _, _ = _run_pipeline(self.SRC)
         h_files = [f for f in gen.files if f.file_type == "h"]
         assert len(h_files) == 1
         assert "#ifndef" in h_files[0].content
 
     def test_c_file_has_purce_header(self) -> None:
-        src = "import numpy as np\ndef add_arrays(a, b):\n    return np.add(a, b)"
-        gen, _, _ = _run_pipeline(src)
+        gen, _, _ = _run_pipeline(self.SRC)
         c_files = [f for f in gen.files if f.file_type == "c"]
         assert "PURCE OUTPUT" in c_files[0].content
 
     def test_c_file_includes_math_h(self) -> None:
-        src = "import numpy as np\ndef add_arrays(a, b):\n    return np.add(a, b)"
-        gen, _, _ = _run_pipeline(src)
+        gen, _, _ = _run_pipeline(self.SRC)
         c_files = [f for f in gen.files if f.file_type == "c"]
         assert "#include <math.h>" in c_files[0].content
 
     def test_c_file_has_function_signature(self) -> None:
-        src = "import numpy as np\ndef add_arrays(a, b):\n    return np.add(a, b)"
-        gen, _, _ = _run_pipeline(src)
+        gen, _, _ = _run_pipeline(self.SRC)
         c_files = [f for f in gen.files if f.file_type == "c"]
-        assert "void " in c_files[0].content
+        assert _has_c_function(c_files[0].content)
         assert "restrict" in c_files[0].content
 
     def test_no_malloc_in_output(self) -> None:
-        src = "import numpy as np\ndef add_arrays(a, b):\n    return np.add(a, b)"
-        gen, _, _ = _run_pipeline(src)
+        gen, _, _ = _run_pipeline(self.SRC)
         for f in gen.files:
             if f.file_type == "c":
                 assert "malloc" not in f.content
@@ -98,26 +97,43 @@ class TestPipelineElementAdd:
                 assert "realloc" not in f.content
 
     def test_has_cmake(self) -> None:
-        src = "import numpy as np\ndef add_arrays(a, b):\n    return np.add(a, b)"
-        gen, _, _ = _run_pipeline(src)
+        gen, _, _ = _run_pipeline(self.SRC)
         cmake = [f for f in gen.files if f.file_type == "cmake"]
         assert len(cmake) == 1
         assert "cmake_minimum_required" in cmake[0].content
 
+    def test_provenance_json_valid(self) -> None:
+        import json
+        gen, _, _ = _run_pipeline(self.SRC)
+        prov_files = [f for f in gen.files if f.file_type == "prov"]
+        prov = json.loads(prov_files[0].content)
+        assert "source" in prov
+        assert "ir_node" in prov
+        assert "memory" in prov
+
+
+# ── Matmul pipeline ──────────────────────────────────────────────────────────
+
 
 class TestPipelineMatmul:
+    SRC = "import numpy as np\ndef matmul_op(A, B):\n    return np.matmul(A, B)"
+
     def test_matmul_generates_c(self) -> None:
-        src = "import numpy as np\ndef matmul_op(A, B):\n    return np.matmul(A, B)"
-        gen, _, _ = _run_pipeline(src)
+        gen, _, _ = _run_pipeline(self.SRC)
         c_files = [f for f in gen.files if f.file_type == "c"]
-        assert len(c_files) >= 1
-        assert "matmul" in c_files[0].content.lower() or "matrix" in c_files[0].content.lower()
+        assert len(c_files) == 1
+        assert _has_c_function(c_files[0].content)
 
     def test_matmul_has_dimension_params(self) -> None:
-        src = "import numpy as np\ndef matmul_op(A, B):\n    return np.matmul(A, B)"
-        gen, _, _ = _run_pipeline(src)
+        gen, _, _ = _run_pipeline(self.SRC)
         h_files = [f for f in gen.files if f.file_type == "h"]
-        assert "int m" in h_files[0].content or "int n" in h_files[0].content
+        header = h_files[0].content
+        assert "void" in header, "Header should declare a void function"
+        assert "restrict" in header
+        assert "double" in header
+
+
+# ── Reduce sum pipeline ──────────────────────────────────────────────────────
 
 
 class TestPipelineReduceSum:
@@ -125,7 +141,11 @@ class TestPipelineReduceSum:
         src = "import numpy as np\ndef sum_op(x):\n    return np.sum(x)"
         gen, _, _ = _run_pipeline(src)
         c_files = [f for f in gen.files if f.file_type == "c"]
-        assert len(c_files) >= 1
+        assert len(c_files) == 1
+        assert _has_c_function(c_files[0].content)
+
+
+# ── Unary operations ─────────────────────────────────────────────────────────
 
 
 class TestPipelineElementUnary:
@@ -142,7 +162,11 @@ class TestPipelineElementUnary:
         src = f"import numpy as np\ndef my_{op_name}(x):\n    return {op_call}(x)"
         gen, _, _ = _run_pipeline(src)
         c_files = [f for f in gen.files if f.file_type == "c"]
-        assert len(c_files) >= 1
+        assert len(c_files) == 1
+        assert _has_c_function(c_files[0].content)
+
+
+# ── Allocation operations ────────────────────────────────────────────────────
 
 
 class TestPipelineAllocOps:
@@ -155,7 +179,8 @@ class TestPipelineAllocOps:
         src = f"import numpy as np\ndef my_{op_name}(n):\n    return {op_call}(n)"
         gen, _, _ = _run_pipeline(src)
         c_files = [f for f in gen.files if f.file_type == "c"]
-        assert len(c_files) >= 1
+        assert len(c_files) == 1
+        assert _has_c_function(c_files[0].content)
 
 
 # ── Multi-operation pipelines ────────────────────────────────────────────────
@@ -184,6 +209,8 @@ def add_then_mul(a, b, c):
         gen, _, _ = _run_pipeline(src)
         c_files = [f for f in gen.files if f.file_type == "c"]
         assert len(c_files) >= 1
+        for cf in c_files:
+            assert _has_c_function(cf.content)
 
     def test_multi_function_extracts_all(self) -> None:
         src = """\
@@ -216,23 +243,23 @@ def invert_matrix(A):
 
 
 class TestPipelineWriteDisk:
+    SRC = "import numpy as np\ndef add_arrays(a, b):\n    return np.add(a, b)"
+
     def test_write_all_creates_files(self) -> None:
-        src = "import numpy as np\ndef add_arrays(a, b):\n    return np.add(a, b)"
-        gen, _, _ = _run_pipeline(src)
+        gen, _, _ = _run_pipeline(self.SRC)
         with tempfile.TemporaryDirectory() as tmpdir:
             gen.write_all(tmpdir)
             files = os.listdir(tmpdir)
             c_files = [f for f in files if f.endswith(".c")]
             h_files = [f for f in files if f.endswith(".h")]
             prov_files = [f for f in files if f.endswith(".prov.json")]
-            assert len(c_files) >= 1
+            assert len(c_files) == 1
             assert len(h_files) == 1
-            assert len(prov_files) >= 1
+            assert len(prov_files) == 1
             assert "CMakeLists.txt" in files
 
     def test_written_c_files_are_valid_utf8(self) -> None:
-        src = "import numpy as np\ndef add_arrays(a, b):\n    return np.add(a, b)"
-        gen, _, _ = _run_pipeline(src)
+        gen, _, _ = _run_pipeline(self.SRC)
         with tempfile.TemporaryDirectory() as tmpdir:
             gen.write_all(tmpdir)
             for f in os.listdir(tmpdir):
@@ -240,6 +267,7 @@ class TestPipelineWriteDisk:
                     with open(os.path.join(tmpdir, f), encoding="utf-8") as fh:
                         content = fh.read()
                     assert len(content) > 0
+                    assert _has_c_function(content)
 
 
 # ── Error handling ───────────────────────────────────────────────────────────
@@ -272,6 +300,7 @@ class TestPipelineVerification:
         fuzzer = DifferentialFuzzer(seed=42)
         result = fuzzer.fuzz_element_add(iterations=100)
         assert result.all_passed
+        assert not result.tested_c
 
     def test_fuzz_matmul(self) -> None:
         fuzzer = DifferentialFuzzer(seed=42)

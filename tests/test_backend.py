@@ -1,5 +1,6 @@
 import json
 import os
+import re
 
 from purce.backend.c99_generator import C99Generator
 from purce.ir.nodes import (
@@ -209,21 +210,30 @@ class TestC99GeneratorAlgorithms:
         graph = _make_graph(_make_matmul_node())
         result = gen.generate(graph, "mymod")
         c_files = [f for f in result.files if f.file_type == "c"]
-        assert "Matrix multiplication" in c_files[0].content
+        content = c_files[0].content
+        assert "Matrix multiplication" in content
+        assert re.search(r'\bfor\s*\(', content), "matmul should contain for loops"
+        assert re.search(r'\bvoid\s+\w+\s*\(', content), "matmul should have a function signature"
 
     def test_element_add_body(self) -> None:
         gen = C99Generator()
         graph = _make_graph(_make_element_add_node())
         result = gen.generate(graph, "mymod")
         c_files = [f for f in result.files if f.file_type == "c"]
-        assert "Element-wise addition" in c_files[0].content
+        content = c_files[0].content
+        assert "Element-wise addition" in content
+        assert re.search(r'\bfor\s*\(', content), "element_add should contain a for loop"
+        assert re.search(r'\bvoid\s+\w+\s*\(', content), "element_add should have a function signature"
 
     def test_reduce_sum_body(self) -> None:
         gen = C99Generator()
         graph = _make_graph(_make_reduce_sum_node())
         result = gen.generate(graph, "mymod")
         c_files = [f for f in result.files if f.file_type == "c"]
-        assert "Reduction sum" in c_files[0].content
+        content = c_files[0].content
+        assert "Reduction sum" in content
+        assert re.search(r'\bfor\s*\(', content), "reduce_sum should contain a for loop"
+        assert re.search(r'\bvoid\s+\w+\s*\(', content), "reduce_sum should have a function signature"
 
 
 class TestC99GeneratorWriteAll:

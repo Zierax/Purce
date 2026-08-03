@@ -8,11 +8,12 @@ tests/
 ├── test_parser.py           PythonParser (all 25+ operations)
 ├── test_slicer.py           SemanticSlicer (pruning, classification)
 ├── test_backend.py          C99Generator (headers, naming, output)
-├── test_verifier.py         DifferentialFuzzer, Z3Verifier
+├── test_verifier.py         DifferentialFuzzer, Z3Verifier, CBackend (requires gcc)
 ├── test_cli.py              CLI extract/compile/verify commands
 ├── test_integration.py      Full pipeline integration tests
-├── test_realworld.py        Real-world project pipeline tests
-├── verification_agent.py    4-phase verification sub-agent
+├── test_realworld.py        Real-world ML/scientific pipeline tests
+├── test_c_compilation.py    C compilation verification (requires gcc)
+├── verification_agent.py    5-phase verification sub-agent
 └── realworld/               Real-world test projects
     ├── layers.py            Neural network layers
     ├── activations.py       Activation functions
@@ -58,17 +59,18 @@ pytest tests/test_backend.py::TestC99GeneratorHeaders::test_generates_purce_outp
 python -m tests.verification_agent
 ```
 
-Runs 4 phases:
+Runs 5 phases:
 1. **Unit tests**: All pytest tests
-2. **Fuzz tests**: 25 operations × 200 iterations
+2. **Fuzz tests**: 25 operations × 200 iterations (C99 vs Python)
 3. **Pipeline integration**: All real-world sources
 4. **Synthetic pipeline**: 5 hand-crafted sources
+5. **Memory safety**: Heap-free and provenance verification
 
 Exit code 0 = all pass, 1 = failure.
 
 ## Test Categories
 
-### Unit Tests (174 total)
+### Unit Tests (188 total)
 
 **Math-IR (`test_ir.py`)**:
 - Node creation and validation

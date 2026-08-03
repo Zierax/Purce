@@ -45,8 +45,8 @@ make format
 ### Running Tests
 
 ```bash
-# Run all 174 tests
-make test
+# Run all 188 tests
+pytest tests/ -v
 
 # Run specific module
 pytest tests/test_ir.py -v
@@ -62,13 +62,18 @@ pytest -x
 
 ```
 tests/
-├── test_ir.py          # 24 tests - MathIRNode, MathIRGraph, MathIRBuilder
-├── test_parser.py      # 26 tests - PythonParser (all MVP operations)
-├── test_slicer.py      # 18 tests - SemanticSlicer (pruning, classification)
-├── test_backend.py     # 18 tests - C99Generator (headers, output, naming)
-├── test_verifier.py    # 21 tests - DifferentialFuzzer, Z3Verifier
-├── test_cli.py         # 12 tests - CLI extract/compile/verify commands
-└── fixtures/           # Sample Python files for testing
+├── test_ir.py              # 24 tests - MathIRNode, MathIRGraph, MathIRBuilder
+├── test_parser.py          # 26 tests - PythonParser (all MVP operations)
+├── test_slicer.py          # 18 tests - SemanticSlicer (pruning, classification)
+├── test_backend.py         # 18 tests - C99Generator (headers, output, naming)
+├── test_verifier.py        # 38 tests - DifferentialFuzzer, Z3Verifier, CBackend (requires gcc)
+├── test_cli.py             # 12 tests - CLI extract/compile/verify commands
+├── test_integration.py     # 33 tests - Full pipeline integration
+├── test_realworld.py       # 42 tests - Real-world ML/scientific code
+├── test_c_compilation.py   # 15 tests - C compilation verification (requires gcc)
+├── verification_agent.py   # 5-phase verification agent
+├── fixtures/               # Sample Python files for testing
+└── realworld/              # 15 ML/scientific test source files
 ```
 
 ### Writing Tests
@@ -220,7 +225,7 @@ make html
 
 ## Pull Request Checklist
 
-- [ ] All 174 tests pass
+- [ ] All tests pass (188 collected, 165 passing, gcc-dependent tests skip gracefully)
 - [ ] No lint errors (`make lint`)
 - [ ] New features have tests
 - [ ] Documentation updated

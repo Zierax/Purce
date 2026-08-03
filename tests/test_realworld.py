@@ -3,10 +3,10 @@
 Tests that purce can parse, build IR, slice, and generate C99 from
 real-world code patterns found in JAX, PyTorch, SciPy, and NumPy.
 """
-
 from __future__ import annotations
 
 import os
+import re
 
 import pytest
 
@@ -39,6 +39,10 @@ def _load_realworld_file(filename: str) -> str:
         return f.read()
 
 
+def _has_c_function(content: str) -> bool:
+    return bool(re.search(r'\b(void|int|double|float)\s+\w+\s*\(', content))
+
+
 # ── JAX ops ──────────────────────────────────────────────────────────────────
 
 
@@ -46,13 +50,15 @@ class TestJaxOps:
     def test_jax_softmax_parses(self) -> None:
         src = _load_realworld_file("jax_ops.py")
         gen, graph, _, _ = _run_pipeline(src, "jax_ops")
-        assert len(graph.nodes) > 0
+        assert len(graph.nodes) >= 1
 
     def test_jax_softmax_generates_c(self) -> None:
         src = _load_realworld_file("jax_ops.py")
         gen, _, _, _ = _run_pipeline(src, "jax_ops")
         c_files = [f for f in gen.files if f.file_type == "c"]
-        assert len(c_files) > 0
+        assert len(c_files) >= 1
+        for cf in c_files:
+            assert _has_c_function(cf.content), f"No function signature in {cf.path}"
 
     def test_jax_layer_norm_parses(self) -> None:
         src = """\
@@ -121,13 +127,15 @@ class TestPytorchOps:
     def test_pytorch_ops_parses(self) -> None:
         src = _load_realworld_file("pytorch_ops.py")
         gen, graph, _, _ = _run_pipeline(src, "pytorch_ops")
-        assert len(graph.nodes) > 0
+        assert len(graph.nodes) >= 1
 
     def test_pytorch_ops_generates_c(self) -> None:
         src = _load_realworld_file("pytorch_ops.py")
         gen, _, _, _ = _run_pipeline(src, "pytorch_ops")
         c_files = [f for f in gen.files if f.file_type == "c"]
-        assert len(c_files) > 0
+        assert len(c_files) >= 1
+        for cf in c_files:
+            assert _has_c_function(cf.content), f"No function signature in {cf.path}"
 
     def test_pytorch_relu_parses(self) -> None:
         src = """\
@@ -136,7 +144,7 @@ def relu(x):
     return np.maximum(x, 0.0)
 """
         gen, graph, _, _ = _run_pipeline(src, "pt_relu")
-        assert len(graph.nodes) >= 1
+        assert len(graph.nodes) == 1
 
     def test_pytorch_adam_parses(self) -> None:
         src = """\
@@ -168,8 +176,8 @@ def huber(pred, target, delta=1.0):
     diff = np.subtract(pred, target)
     abs_diff = np.abs(diff)
     quadratic = np.minimum(abs_diff, delta)
-    linear = np.subtract(abs_diff, quadratic)
-    return np.mean(np.add(np.multiply(0.5, np.power(quadratic, 2.0)), linear))
+    linear_part = np.subtract(abs_diff, quadratic)
+    return np.mean(np.add(np.multiply(0.5, np.power(quadratic, 2.0)), linear_part))
 """
         gen, graph, _, _ = _run_pipeline(src, "pt_huber")
         assert len(graph.nodes) == 1
@@ -190,13 +198,15 @@ class TestScipyOps:
     def test_scipy_ops_parses(self) -> None:
         src = _load_realworld_file("scipy_ops.py")
         gen, graph, _, _ = _run_pipeline(src, "scipy_ops")
-        assert len(graph.nodes) > 0
+        assert len(graph.nodes) >= 1
 
     def test_scipy_ops_generates_c(self) -> None:
         src = _load_realworld_file("scipy_ops.py")
         gen, _, _, _ = _run_pipeline(src, "scipy_ops")
         c_files = [f for f in gen.files if f.file_type == "c"]
-        assert len(c_files) > 0
+        assert len(c_files) >= 1
+        for cf in c_files:
+            assert _has_c_function(cf.content), f"No function signature in {cf.path}"
 
     def test_scipy_cholesky_parses(self) -> None:
         src = """\
@@ -241,6 +251,219 @@ def convolve(signal, kernel):
         assert "#ifndef" in h_files[0].content
 
 
+# ── Activations ──────────────────────────────────────────────────────────────
+
+
+class TestActivations:
+    def test_activations_parses(self) -> None:
+        src = _load_realworld_file("activations.py")
+        gen, graph, _, _ = _run_pipeline(src, "activations")
+        assert len(graph.nodes) >= 1
+
+    def test_activations_generates_c(self) -> None:
+        src = _load_realworld_file("activations.py")
+        gen, _, _, _ = _run_pipeline(src, "activations")
+        c_files = [f for f in gen.files if f.file_type == "c"]
+        assert len(c_files) >= 1
+        for cf in c_files:
+            assert _has_c_function(cf.content), f"No function signature in {cf.path}"
+
+    def test_activations_no_malloc(self) -> None:
+        src = _load_realworld_file("activations.py")
+        gen, _, _, _ = _run_pipeline(src, "activations")
+        for f in gen.files:
+            if f.file_type == "c":
+                assert "malloc" not in f.content
+                assert "calloc" not in f.content
+
+    def test_activations_has_provenance(self) -> None:
+        src = _load_realworld_file("activations.py")
+        gen, _, _, _ = _run_pipeline(src, "activations")
+        prov_files = [f for f in gen.files if f.file_type == "prov"]
+        c_files = [f for f in gen.files if f.file_type == "c"]
+        assert len(prov_files) == len(c_files)
+
+
+# ── Losses ───────────────────────────────────────────────────────────────────
+
+
+class TestLosses:
+    def test_losses_parses(self) -> None:
+        src = _load_realworld_file("losses.py")
+        gen, graph, _, _ = _run_pipeline(src, "losses")
+        assert len(graph.nodes) >= 1
+
+    def test_losses_generates_c(self) -> None:
+        src = _load_realworld_file("losses.py")
+        gen, _, _, _ = _run_pipeline(src, "losses")
+        c_files = [f for f in gen.files if f.file_type == "c"]
+        assert len(c_files) >= 1
+        for cf in c_files:
+            assert _has_c_function(cf.content), f"No function signature in {cf.path}"
+
+
+# ── Normalization ────────────────────────────────────────────────────────────
+
+
+class TestNormalization:
+    def test_normalization_parses(self) -> None:
+        src = _load_realworld_file("normalization.py")
+        gen, graph, _, _ = _run_pipeline(src, "normalization")
+        assert len(graph.nodes) >= 1
+
+    def test_normalization_generates_c(self) -> None:
+        src = _load_realworld_file("normalization.py")
+        gen, _, _, _ = _run_pipeline(src, "normalization")
+        c_files = [f for f in gen.files if f.file_type == "c"]
+        assert len(c_files) >= 1
+        for cf in c_files:
+            assert _has_c_function(cf.content), f"No function signature in {cf.path}"
+
+
+# ── Layers ───────────────────────────────────────────────────────────────────
+
+
+class TestLayers:
+    def test_layers_parses(self) -> None:
+        src = _load_realworld_file("layers.py")
+        gen, graph, _, _ = _run_pipeline(src, "layers")
+        assert len(graph.nodes) >= 1
+
+    def test_layers_generates_c(self) -> None:
+        src = _load_realworld_file("layers.py")
+        gen, _, _, _ = _run_pipeline(src, "layers")
+        c_files = [f for f in gen.files if f.file_type == "c"]
+        assert len(c_files) >= 1
+        for cf in c_files:
+            assert _has_c_function(cf.content), f"No function signature in {cf.path}"
+
+
+# ── Optimizers ───────────────────────────────────────────────────────────────
+
+
+class TestOptimizers:
+    def test_optimizers_parses(self) -> None:
+        src = _load_realworld_file("optimizers.py")
+        gen, graph, _, _ = _run_pipeline(src, "optimizers")
+        assert len(graph.nodes) >= 1
+
+    def test_optimizers_generates_c(self) -> None:
+        src = _load_realworld_file("optimizers.py")
+        gen, _, _, _ = _run_pipeline(src, "optimizers")
+        c_files = [f for f in gen.files if f.file_type == "c"]
+        assert len(c_files) >= 1
+        for cf in c_files:
+            assert _has_c_function(cf.content), f"No function signature in {cf.path}"
+
+
+# ── Linear algebra ───────────────────────────────────────────────────────────
+
+
+class TestLinearAlgebra:
+    def test_linear_algebra_parses(self) -> None:
+        src = _load_realworld_file("linear_algebra.py")
+        gen, graph, _, _ = _run_pipeline(src, "linear_algebra")
+        assert len(graph.nodes) >= 1
+
+    def test_linear_algebra_generates_c(self) -> None:
+        src = _load_realworld_file("linear_algebra.py")
+        gen, _, _, _ = _run_pipeline(src, "linear_algebra")
+        c_files = [f for f in gen.files if f.file_type == "c"]
+        assert len(c_files) >= 1
+        for cf in c_files:
+            assert _has_c_function(cf.content), f"No function signature in {cf.path}"
+
+
+# ── Attention ────────────────────────────────────────────────────────────────
+
+
+class TestAttention:
+    def test_attention_parses(self) -> None:
+        src = _load_realworld_file("attention.py")
+        gen, graph, _, _ = _run_pipeline(src, "attention")
+        assert len(graph.nodes) >= 1
+
+    def test_attention_generates_c(self) -> None:
+        src = _load_realworld_file("attention.py")
+        gen, _, _, _ = _run_pipeline(src, "attention")
+        c_files = [f for f in gen.files if f.file_type == "c"]
+        assert len(c_files) >= 1
+        for cf in c_files:
+            assert _has_c_function(cf.content), f"No function signature in {cf.path}"
+
+
+# ── Convolution ──────────────────────────────────────────────────────────────
+
+
+class TestConvolution:
+    def test_convolution_parses(self) -> None:
+        src = _load_realworld_file("convolution.py")
+        gen, graph, _, _ = _run_pipeline(src, "convolution")
+        assert len(graph.nodes) >= 1
+
+    def test_convolution_generates_c(self) -> None:
+        src = _load_realworld_file("convolution.py")
+        gen, _, _, _ = _run_pipeline(src, "convolution")
+        c_files = [f for f in gen.files if f.file_type == "c"]
+        assert len(c_files) >= 1
+        for cf in c_files:
+            assert _has_c_function(cf.content), f"No function signature in {cf.path}"
+
+
+# ── Signal processing ────────────────────────────────────────────────────────
+
+
+class TestSignalProcessing:
+    def test_signal_processing_parses(self) -> None:
+        src = _load_realworld_file("signal_processing.py")
+        gen, graph, _, _ = _run_pipeline(src, "signal_processing")
+        assert len(graph.nodes) >= 1
+
+    def test_signal_processing_generates_c(self) -> None:
+        src = _load_realworld_file("signal_processing.py")
+        gen, _, _, _ = _run_pipeline(src, "signal_processing")
+        c_files = [f for f in gen.files if f.file_type == "c"]
+        assert len(c_files) >= 1
+        for cf in c_files:
+            assert _has_c_function(cf.content), f"No function signature in {cf.path}"
+
+
+# ── Extra patterns ───────────────────────────────────────────────────────────
+
+
+class TestExtraPatterns:
+    def test_extra_patterns_source_strings_parse(self) -> None:
+        import importlib.util
+        path = os.path.join(os.path.dirname(__file__), "realworld", "extra_patterns.py")
+        spec = importlib.util.spec_from_file_location("extra_patterns", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        patterns = [
+            ("TRANSFORMER_SELF_ATTENTION", mod.TRANSFORMER_SELF_ATTENTION),
+            ("RNN_CELL", mod.RNN_CELL),
+            ("CONV_1D", mod.CONV_1D),
+        ]
+        for name, src in patterns:
+            gen, graph, _, _ = _run_pipeline(src, f"extra_{name}")
+            assert len(graph.nodes) >= 1, f"Pattern {name} produced 0 nodes"
+            c_files = [f for f in gen.files if f.file_type == "c"]
+            assert len(c_files) >= 1, f"Pattern {name} produced no C files"
+
+    def test_extra_patterns_have_provenance(self) -> None:
+        import importlib.util
+        path = os.path.join(os.path.dirname(__file__), "realworld", "extra_patterns.py")
+        spec = importlib.util.spec_from_file_location("extra_patterns", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+
+        src = mod.TRANSFORMER_SELF_ATTENTION
+        gen, _, _, _ = _run_pipeline(src, "extra_attn")
+        prov_files = [f for f in gen.files if f.file_type == "prov"]
+        c_files = [f for f in gen.files if f.file_type == "c"]
+        assert len(prov_files) == len(c_files)
+
+
 # ── Stress tests ─────────────────────────────────────────────────────────────
 
 
@@ -251,15 +474,16 @@ class TestStress:
         ops = ["np.add", "np.subtract", "np.multiply", "np.divide",
                "np.sum", "np.mean", "np.sqrt", "np.exp", "np.log",
                "np.sin", "np.cos", "np.abs", "np.tan"]
-        for _ in range(100):
+        for i in range(100):
             op = random.choice(ops)
             n_inputs = 2 if op in ("np.add", "np.subtract", "np.multiply", "np.divide") else 1
-            params = ", ".join(f"x{i}" for i in range(n_inputs))
-            args = ", ".join(f"x{i}" for i in range(n_inputs))
+            params = ", ".join(f"x{j}" for j in range(n_inputs))
+            args = ", ".join(f"x{j}" for j in range(n_inputs))
             src = f"import numpy as np\ndef f({params}):\n    return {op}({args})"
             builder = MathIRBuilder(origin_file="stress")
             graph = builder.build_from_source(src, module="stress")
             assert isinstance(graph.nodes, dict)
+            assert len(graph.nodes) == 1, f"Iteration {i}: expected 1 node for {op}, got {len(graph.nodes)}"
 
     def test_large_multi_op_source_parses(self) -> None:
         lines = ["import numpy as np"]

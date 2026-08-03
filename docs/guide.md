@@ -189,11 +189,12 @@ for op, result in results.items():
 python -m tests.verification_agent
 ```
 
-Runs 4-phase validation:
+Runs 5-phase validation:
 1. Unit tests (pytest)
-2. Fuzz tests (25 operations)
+2. Fuzz tests (25 operations, C99 vs Python)
 3. Pipeline integration (real-world sources)
 4. Synthetic pipeline test
+5. Memory safety verification (heap-free, provenance)
 
 ## CLI Reference
 

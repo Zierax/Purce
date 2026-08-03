@@ -61,7 +61,8 @@ class TestCLICompile:
         out_dir = str(tmp_path) + "/out"
         result = runner.invoke(main, ["compile", fixtures_dir, "-o", out_dir, "--verify"])
         assert result.exit_code == 0
-        assert "Verification" in result.output or "Fuzz" in result.output
+        assert "Running verification" in result.output
+        assert "Done" in result.output
 
 
 class TestCLIVerify:
@@ -69,7 +70,7 @@ class TestCLIVerify:
         result = runner.invoke(main, ["verify", "--iterations", "50"])
         assert result.exit_code == 0
         assert "purce verify" in result.output
-        assert "PASS" in result.output or "FAIL" in result.output
+        assert "PASS" in result.output
 
 
 class TestCLIVersion:
@@ -95,7 +96,7 @@ class TestCLIOutputStructure:
         cmake_files = [f for f in files if f.endswith("CMakeLists.txt")]
 
         assert len(c_files) >= 1
-        assert len(h_files) >= 1
+        assert len(h_files) == 1
         assert len(prov_files) >= 1
         assert len(cmake_files) == 1
 
