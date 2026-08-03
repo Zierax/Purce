@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Pre-commit hook for Purce
+# Install: cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
+
+set -e
+
+echo "Running pre-commit checks..."
+
+# Check no TODO/FIXME in generated code
+if git diff --cached --name-only | xargs grep -l "TODO\|FIXME\|HACK" 2>/dev/null; then
+    echo "ERROR: TODO/FIXME/HACK found in staged files"
+    exit 1
+fi
+
+# Run tests
+echo "Running tests..."
+python -m pytest tests/ -q --tb=line --no-header 2>&1 | tail -1
+
+# Run quick fuzz check
+echo "Running fuzz verification (50 iterations)..."
+python -c "
+from purce.verifier.fuzzer import DifferentialFuzzer
+r = DifferentialFuzzer(seed=42).fuzz_all(iterations=50)
+fails = [k for k,v in r.items() if not v.all_passed]
+if fails:
+    print(f'FUZZ FAILURES: {fails}')
+    exit(1)
+print('Fuzz: all passed')
+"
+
+echo "Pre-commit checks passed."
