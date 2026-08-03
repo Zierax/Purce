@@ -1,18 +1,12 @@
-"""Run all benchmarks and generate comprehensive report."""
-
-from __future__ import annotations
-
+"""Run all benchmarks and report results."""
 import os
 import sys
 import time
-from pathlib import Path
-
-BENCHMARK_DIR = Path(__file__).parent
 
 
 def _run_benchmark(name: str, module: str) -> bool:
     print(f"\n{'='*60}")
-    print(f"  Running: {name}")
+    print(f"  {name}")
     print(f"{'='*60}\n")
     try:
         result = os.system(f"{sys.executable} -m benchmarks.{module}")
@@ -27,11 +21,13 @@ def main() -> int:
     results = {}
 
     benchmarks = [
-        ("Numerical Accuracy (25 ops, 87k iterations)", "numerical_accuracy"),
-        ("Performance Scaling (real gcc -O2)", "performance_scaling"),
+        ("Performance Scaling (gcc -O2, 10 samples)", "performance_scaling"),
+        ("Detailed Benchmark (NumPy + Fuzzing)", "detailed_benchmark"),
+        ("Numerical Accuracy (25 ops)", "numerical_accuracy"),
         ("Edge Cases (IEEE 754)", "edge_cases"),
         ("Code Quality Metrics", "code_metrics"),
         ("C Code Quality Analysis", "c_code_quality"),
+        ("Matrix Multiplication", "benchmark_matmul"),
     ]
 
     for name, module in benchmarks:

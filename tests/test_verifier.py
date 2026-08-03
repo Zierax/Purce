@@ -1,8 +1,13 @@
+"""Tests for the differential fuzzer — now actually tests C code via ctypes."""
 import pytest
 
 from purce.ir.nodes import Dtype, Effect, MathIRGraph, MathIRNode
 from purce.verifier.fuzzer import DifferentialFuzzer, FuzzResult
 from purce.verifier.z3_verifier import Z3Verifier
+
+import shutil as _shutil
+_HAS_GCC = _shutil.which("gcc") is not None or _shutil.which("cc") is not None
+RequiresGcc = pytest.mark.skipif(not _HAS_GCC, reason="gcc not available")
 
 
 def _make_node(
@@ -26,91 +31,230 @@ def _make_node(
     )
 
 
-class TestDifferentialFuzzerElementwise:
+# ── Python-only fuzzing (backward compat) ──
+
+class TestFuzzerPythonOnly:
+    def test_element_add_python(self) -> None:
+        f = DifferentialFuzzer()
+        r = f.fuzz_element_add(iterations=100)
+        assert r.all_passed
+        assert not r.tested_c
+
+    def test_fuzz_all_python(self) -> None:
+        f = DifferentialFuzzer()
+        results = f.fuzz_all(iterations=20)
+        assert len(results) == 25
+        for r in results.values():
+            assert r.all_passed
+
+
+# ── C-backed fuzzing (actual verification) ──
+
+@RequiresGcc
+class TestFuzzerCBackendElementwise:
     def test_element_add(self) -> None:
-        fuzzer = DifferentialFuzzer()
-        result = fuzzer.fuzz_element_add(iterations=100)
-        assert result.operation == "element_add"
-        assert result.iterations == 100
-        assert result.passed > 0
+        f, h = DifferentialFuzzer.with_c_backend(seed=42)
+        try:
+            r = f.fuzz_element_add(iterations=200)
+            assert r.all_passed, f"Failures: {r.failures[:3]}"
+            assert r.tested_c
+            assert r.max_error < 1e-10
+        finally:
+            h.close()
 
     def test_element_sub(self) -> None:
-        fuzzer = DifferentialFuzzer()
-        result = fuzzer.fuzz_element_sub(iterations=100)
-        assert result.operation == "element_sub"
-        assert result.passed > 0
+        f, h = DifferentialFuzzer.with_c_backend(seed=42)
+        try:
+            r = f.fuzz_element_sub(iterations=200)
+            assert r.all_passed, f"Failures: {r.failures[:3]}"
+            assert r.tested_c
+            assert r.max_error < 1e-10
+        finally:
+            h.close()
 
     def test_element_mul(self) -> None:
-        fuzzer = DifferentialFuzzer()
-        result = fuzzer.fuzz_element_mul(iterations=100)
-        assert result.operation == "element_mul"
-        assert result.passed > 0
+        f, h = DifferentialFuzzer.with_c_backend(seed=42)
+        try:
+            r = f.fuzz_element_mul(iterations=200)
+            assert r.all_passed, f"Failures: {r.failures[:3]}"
+            assert r.tested_c
+            assert r.max_error < 1e-10
+        finally:
+            h.close()
 
     def test_element_div(self) -> None:
-        fuzzer = DifferentialFuzzer()
-        result = fuzzer.fuzz_element_div(iterations=100)
-        assert result.operation == "element_div"
-        assert result.passed > 0
+        f, h = DifferentialFuzzer.with_c_backend(seed=42)
+        try:
+            r = f.fuzz_element_div(iterations=200)
+            assert r.all_passed, f"Failures: {r.failures[:3]}"
+            assert r.tested_c
+            assert r.max_error < 1e-10
+        finally:
+            h.close()
 
 
-class TestDifferentialFuzzerReductions:
+@RequiresGcc
+class TestFuzzerCBackendReductions:
     def test_reduce_sum(self) -> None:
-        fuzzer = DifferentialFuzzer()
-        result = fuzzer.fuzz_reduce_sum(iterations=100)
-        assert result.operation == "reduce_sum"
-        assert result.passed > 0
+        f, h = DifferentialFuzzer.with_c_backend(seed=42)
+        try:
+            r = f.fuzz_reduce_sum(iterations=200)
+            assert r.all_passed, f"Failures: {r.failures[:3]}"
+            assert r.tested_c
+            assert r.max_error < 1e-6
+        finally:
+            h.close()
 
     def test_reduce_mean(self) -> None:
-        fuzzer = DifferentialFuzzer()
-        result = fuzzer.fuzz_reduce_mean(iterations=100)
-        assert result.operation == "reduce_mean"
-        assert result.passed > 0
+        f, h = DifferentialFuzzer.with_c_backend(seed=42)
+        try:
+            r = f.fuzz_reduce_mean(iterations=200)
+            assert r.all_passed, f"Failures: {r.failures[:3]}"
+            assert r.tested_c
+        finally:
+            h.close()
 
     def test_reduce_max(self) -> None:
-        fuzzer = DifferentialFuzzer()
-        result = fuzzer.fuzz_reduce_max(iterations=100)
-        assert result.operation == "reduce_max"
-        assert result.passed > 0
+        f, h = DifferentialFuzzer.with_c_backend(seed=42)
+        try:
+            r = f.fuzz_reduce_max(iterations=200)
+            assert r.all_passed, f"Failures: {r.failures[:3]}"
+            assert r.tested_c
+        finally:
+            h.close()
 
     def test_reduce_min(self) -> None:
-        fuzzer = DifferentialFuzzer()
-        result = fuzzer.fuzz_reduce_min(iterations=100)
-        assert result.operation == "reduce_min"
-        assert result.passed > 0
+        f, h = DifferentialFuzzer.with_c_backend(seed=42)
+        try:
+            r = f.fuzz_reduce_min(iterations=200)
+            assert r.all_passed, f"Failures: {r.failures[:3]}"
+            assert r.tested_c
+        finally:
+            h.close()
 
 
-class TestDifferentialFuzzerLinearAlgebra:
+@RequiresGcc
+class TestFuzzerCBackendUnary:
+    @pytest.mark.parametrize("op", ["element_sin", "element_cos", "element_tan",
+                                     "element_sqrt", "element_exp", "element_log", "element_abs"])
+    def test_unary_ops(self, op: str) -> None:
+        f, h = DifferentialFuzzer.with_c_backend(seed=42)
+        try:
+            fn = getattr(f, f"fuzz_{op}")
+            r = fn(iterations=200)
+            assert r.all_passed, f"{op} failures: {r.failures[:3]}"
+            assert r.tested_c
+        finally:
+            h.close()
+
+
+@RequiresGcc
+class TestFuzzerCBackendMatmul:
+    def test_matmul(self) -> None:
+        f, h = DifferentialFuzzer.with_c_backend(seed=42)
+        try:
+            r = f.fuzz_matmul(iterations=100)
+            assert r.all_passed, f"Failures: {r.failures[:3]}"
+            assert r.tested_c
+            assert r.max_error < 1e-6
+        finally:
+            h.close()
+
+
+@RequiresGcc
+class TestFuzzerCBackendFFT:
+    def test_fft(self) -> None:
+        f, h = DifferentialFuzzer.with_c_backend(seed=42)
+        try:
+            r = f.fuzz_fft(iterations=100)
+            assert r.all_passed, f"Failures: {r.failures[:3]}"
+            assert r.tested_c
+        finally:
+            h.close()
+
+    def test_ifft(self) -> None:
+        f, h = DifferentialFuzzer.with_c_backend(seed=42)
+        try:
+            r = f.fuzz_ifft(iterations=100)
+            assert r.all_passed, f"Failures: {r.failures[:3]}"
+            assert r.tested_c
+        finally:
+            h.close()
+
+
+@RequiresGcc
+class TestFuzzerCBackendLinalg:
     def test_linalg_solve(self) -> None:
-        fuzzer = DifferentialFuzzer()
-        result = fuzzer.fuzz_linalg_solve(iterations=50)
-        assert result.operation == "linalg_solve"
-        assert result.passed > 0
+        f, h = DifferentialFuzzer.with_c_backend(seed=42)
+        try:
+            r = f.fuzz_linalg_solve(iterations=50)
+            assert r.all_passed, f"Failures: {r.failures[:3]}"
+            assert r.tested_c
+        finally:
+            h.close()
 
     def test_linalg_inv(self) -> None:
-        fuzzer = DifferentialFuzzer()
-        result = fuzzer.fuzz_linalg_inv(iterations=50)
-        assert result.operation == "linalg_inv"
-        assert result.passed > 0
+        f, h = DifferentialFuzzer.with_c_backend(seed=42)
+        try:
+            r = f.fuzz_linalg_inv(iterations=50)
+            assert r.all_passed, f"Failures: {r.failures[:3]}"
+            assert r.tested_c
+        finally:
+            h.close()
+
+    def test_linalg_cholesky(self) -> None:
+        f, h = DifferentialFuzzer.with_c_backend(seed=42)
+        try:
+            r = f.fuzz_linalg_cholesky(iterations=50)
+            assert r.all_passed, f"Failures: {r.failures[:3]}"
+            assert r.tested_c
+        finally:
+            h.close()
+
+    def test_linalg_eig(self) -> None:
+        f, h = DifferentialFuzzer.with_c_backend(seed=42)
+        try:
+            r = f.fuzz_linalg_eig(iterations=50)
+            assert r.all_passed, f"Failures: {r.failures[:3]}"
+            assert r.tested_c
+        finally:
+            h.close()
 
 
-class TestDifferentialFuzzerFFT:
-    def test_fft(self) -> None:
-        fuzzer = DifferentialFuzzer()
-        result = fuzzer.fuzz_fft(iterations=50)
-        assert result.operation == "fft"
-        assert result.passed > 0
+@RequiresGcc
+class TestFuzzerCBackendAlloc:
+    @pytest.mark.parametrize("op", ["alloc_zeros", "alloc_ones", "alloc_eye"])
+    def test_alloc_ops(self, op: str) -> None:
+        f, h = DifferentialFuzzer.with_c_backend(seed=42)
+        try:
+            fn = getattr(f, f"fuzz_{op}")
+            r = fn(iterations=100)
+            assert r.all_passed, f"{op} failures: {r.failures[:3]}"
+            assert r.tested_c
+        finally:
+            h.close()
 
 
-class TestDifferentialFuzzerFuzzAll:
-    def test_fuzz_all(self) -> None:
-        fuzzer = DifferentialFuzzer()
-        results = fuzzer.fuzz_all(iterations=50)
-        assert len(results) == 25
-        for result in results.values():
-            assert result.iterations == 50 or result.iterations > 0
+@RequiresGcc
+class TestFuzzerCBackendFuzzAll:
+    def test_fuzz_all_with_c(self) -> None:
+        f, h = DifferentialFuzzer.with_c_backend(seed=42)
+        try:
+            results = f.fuzz_all(iterations=50)
+            assert len(results) == 25
+            failed_ops = []
+            for name, r in results.items():
+                if not r.all_passed:
+                    failed_ops.append(f"{name}: {r.passed}/{r.iterations}")
+                assert r.tested_c, f"{name} did not test C code"
+            assert not failed_ops, f"Operations failed: {failed_ops}"
+        finally:
+            h.close()
 
 
-class TestDifferentialFuzzerFuzzResult:
+# ── FuzzResult data class ──
+
+class TestFuzzResult:
     def test_success_rate(self) -> None:
         r = FuzzResult(operation="test", iterations=100, passed=95, failed=5)
         assert r.success_rate == pytest.approx(0.95)
@@ -124,6 +268,16 @@ class TestDifferentialFuzzerFuzzResult:
         r = FuzzResult(operation="test", iterations=0, passed=0, failed=0)
         assert r.success_rate == 0.0
 
+    def test_error_tracking(self) -> None:
+        r = FuzzResult(
+            operation="test", iterations=10, passed=8, failed=2,
+            max_error=0.05, mean_error=0.01
+        )
+        assert r.max_error == 0.05
+        assert r.mean_error == 0.01
+
+
+# ── Z3 Verifier ──
 
 class TestZ3Verifier:
     def test_element_add(self) -> None:

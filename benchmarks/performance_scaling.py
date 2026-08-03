@@ -2,28 +2,42 @@
 
 Compiles actual C99 code with gcc -O2 and measures execution time.
 Compares against Python list comprehensions and NumPy for reference.
-"""
 
+Includes warmup, multiple samples, and statistical reporting.
+"""
 from __future__ import annotations
 
+import gc
 import math
 import os
+import platform
 import random
 import subprocess
 import sys
 import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+
+WARMUP_RUNS = 5
+SAMPLES = 10
 
 
 @dataclass
 class ScalingPoint:
     input_size: int
-    python_time_us: float
-    c99_time_us: float
-    numpy_time_us: float | None
-    speedup_vs_python: float
-    speedup_vs_numpy: float | None
+    python_us_mean: float
+    python_us_std: float
+    c99_us_mean: float
+    c99_us_std: float
+    numpy_us_mean: float | None
+    numpy_us_std: float | None
+    speedup_vs_python_mean: float
+    speedup_vs_python_std: float
+    speedup_vs_numpy_mean: float | None
+    speedup_vs_numpy_std: float | None
+    c_iterations: int
+    py_iterations: int
 
 
 @dataclass
@@ -31,68 +45,97 @@ class ScalingResult:
     operation: str
     category: str
     points: list[ScalingPoint]
-    python_complexity: str
-    c99_complexity: str
 
 
 def _has_gcc() -> bool:
-    try:
-        result = subprocess.run(
-            ["gcc", "--version"], capture_output=True, timeout=5,
-        )
-        return result.returncode == 0
-    except (FileNotFoundError, subprocess.TimeoutExpired):
-        return False
+    for name in ("gcc", "cc", "x86_64-w64-mingw32-gcc"):
+        try:
+            r = subprocess.run([name, "--version"], capture_output=True, timeout=5)
+            if r.returncode == 0:
+                return True
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            continue
+    return False
+
+
+def _find_gcc() -> str:
+    for name in ("gcc", "cc", "x86_64-w64-mingw32-gcc"):
+        try:
+            r = subprocess.run([name, "--version"], capture_output=True, timeout=5)
+            if r.returncode == 0:
+                return name
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            continue
+    raise RuntimeError("gcc not found")
 
 
 def _compile_c(source: str, optimization: str = "-O2") -> str | None:
-    with tempfile.NamedTemporaryFile(suffix=".c", mode="w", delete=False, dir="/tmp") as f:
+    tmpdir = tempfile.mkdtemp(prefix="purce_bench_")
+    src_path = os.path.join(tmpdir, "bench.c")
+    bin_path = os.path.join(tmpdir, "bench")
+    if platform.system() == "Windows":
+        bin_path += ".exe"
+    with open(src_path, "w") as f:
         f.write(source)
-        src_path = f.name
-    bin_path = src_path.replace(".c", "_bench")
     try:
-        result = subprocess.run(
-            ["gcc", "-std=c99", optimization, "-o", bin_path, src_path, "-lm"],
+        gcc = _find_gcc()
+        r = subprocess.run(
+            [gcc, "-std=c99", optimization, "-o", bin_path, src_path, "-lm"],
             capture_output=True, text=True, timeout=30,
         )
-        if result.returncode == 0:
-            try:
-                os.unlink(src_path)
-            except OSError:
-                pass
+        if r.returncode == 0:
             return bin_path
     except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
-    try:
-        os.unlink(src_path)
-    except OSError:
         pass
     return None
 
 
 def _measure_c_binary(binary_path: str, n_iters: int = 500) -> float:
     try:
-        result = subprocess.run(
+        r = subprocess.run(
             [binary_path, str(n_iters)],
             capture_output=True, text=True, timeout=60,
         )
-        if result.returncode == 0 and result.stdout.strip():
-            return float(result.stdout.strip().split("\n")[-1].strip())
+        if r.returncode == 0 and r.stdout.strip():
+            return float(r.stdout.strip().split("\n")[-1].strip())
     except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
         pass
     return -1.0
 
 
-def _measure_python(fn, args, iterations: int = 500) -> float:
-    start = time.perf_counter()
-    for _ in range(iterations):
+def _measure_python(fn, args, iterations: int = 500) -> list[float]:
+    gc.disable()
+    times = []
+    for _ in range(WARMUP_RUNS):
         fn(*args)
-    elapsed = (time.perf_counter() - start) / iterations
-    return elapsed * 1_000_000
+    for _ in range(iterations):
+        start = time.perf_counter()
+        fn(*args)
+        elapsed = time.perf_counter() - start
+        times.append(elapsed * 1_000_000)
+    gc.enable()
+    return times
+
+
+def _stats(times: list[float]) -> tuple[float, float]:
+    if not times:
+        return 0.0, 0.0
+    mean = sum(times) / len(times)
+    if len(times) < 2:
+        return mean, 0.0
+    var = sum((t - mean) ** 2 for t in times) / (len(times) - 1)
+    return mean, math.sqrt(var)
+
+
+def _median(times: list[float]) -> float:
+    s = sorted(times)
+    n = len(s)
+    if n % 2 == 1:
+        return s[n // 2]
+    return (s[n // 2 - 1] + s[n // 2]) / 2.0
 
 
 C_ELEMENT_ADD = """\
-#define _POSIX_C_SOURCE 199309L
 #include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
@@ -109,11 +152,10 @@ int main(int argc, char **argv) {
     double *c = malloc(n * sizeof(double));
     srand(42);
     for (int i = 0; i < n; i++) { a[i] = (double)rand()/RAND_MAX; b[i] = (double)rand()/RAND_MAX; }
-    struct timespec t0, t1;
-    clock_gettime(CLOCK_MONOTONIC, &t0);
+    clock_t t0 = clock();
     for (int it = 0; it < iters; it++) element_add(a, b, c, n);
-    clock_gettime(CLOCK_MONOTONIC, &t1);
-    double elapsed = (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) * 1e-9;
+    clock_t t1 = clock();
+    double elapsed = (double)(t1 - t0) / CLOCKS_PER_SEC;
     printf("%%.6f\\n", elapsed / iters * 1e6);
     free(a); free(b); free(c);
     return 0;
@@ -121,7 +163,6 @@ int main(int argc, char **argv) {
 """
 
 C_ELEMENT_MUL = """\
-#define _POSIX_C_SOURCE 199309L
 #include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
@@ -138,11 +179,10 @@ int main(int argc, char **argv) {
     double *c = malloc(n * sizeof(double));
     srand(42);
     for (int i = 0; i < n; i++) { a[i] = (double)rand()/RAND_MAX; b[i] = (double)rand()/RAND_MAX; }
-    struct timespec t0, t1;
-    clock_gettime(CLOCK_MONOTONIC, &t0);
+    clock_t t0 = clock();
     for (int it = 0; it < iters; it++) element_mul(a, b, c, n);
-    clock_gettime(CLOCK_MONOTONIC, &t1);
-    double elapsed = (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) * 1e-9;
+    clock_t t1 = clock();
+    double elapsed = (double)(t1 - t0) / CLOCKS_PER_SEC;
     printf("%%.6f\\n", elapsed / iters * 1e6);
     free(a); free(b); free(c);
     return 0;
@@ -150,7 +190,6 @@ int main(int argc, char **argv) {
 """
 
 C_REDUCE_SUM = """\
-#define _POSIX_C_SOURCE 199309L
 #include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
@@ -168,11 +207,10 @@ int main(int argc, char **argv) {
     srand(42);
     for (int i = 0; i < n; i++) x[i] = (double)rand()/RAND_MAX;
     volatile double s;
-    struct timespec t0, t1;
-    clock_gettime(CLOCK_MONOTONIC, &t0);
+    clock_t t0 = clock();
     for (int it = 0; it < iters; it++) s = reduce_sum(x, n);
-    clock_gettime(CLOCK_MONOTONIC, &t1);
-    double elapsed = (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) * 1e-9;
+    clock_t t1 = clock();
+    double elapsed = (double)(t1 - t0) / CLOCKS_PER_SEC;
     printf("%%.6f\\n", elapsed / iters * 1e6);
     free(x);
     return 0;
@@ -180,7 +218,6 @@ int main(int argc, char **argv) {
 """
 
 C_MATMUL = """\
-#define _POSIX_C_SOURCE 199309L
 #include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
@@ -203,11 +240,10 @@ int main(int argc, char **argv) {
     double *C = malloc(n*n*sizeof(double));
     srand(42);
     for (int i = 0; i < n*n; i++) { A[i] = (double)rand()/RAND_MAX; B[i] = (double)rand()/RAND_MAX; }
-    struct timespec t0, t1;
-    clock_gettime(CLOCK_MONOTONIC, &t0);
+    clock_t t0 = clock();
     for (int it = 0; it < iters; it++) matmul(A, B, C, n);
-    clock_gettime(CLOCK_MONOTONIC, &t1);
-    double elapsed = (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) * 1e-9;
+    clock_t t1 = clock();
+    double elapsed = (double)(t1 - t0) / CLOCKS_PER_SEC;
     printf("%%.6f\\n", elapsed / iters * 1e6);
     free(A); free(B); free(C);
     return 0;
@@ -215,7 +251,6 @@ int main(int argc, char **argv) {
 """
 
 C_FFT = """\
-#define _POSIX_C_SOURCE 199309L
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
@@ -262,14 +297,13 @@ int main(int argc, char **argv) {
     double *re = malloc(n * sizeof(double));
     double *im = malloc(n * sizeof(double));
     srand(42);
-    struct timespec t0, t1;
-    clock_gettime(CLOCK_MONOTONIC, &t0);
+    clock_t t0 = clock();
     for (int it = 0; it < iters; it++) {
         for (int i = 0; i < n; i++) { re[i] = (double)rand()/RAND_MAX; im[i] = (double)rand()/RAND_MAX; }
         fft(re, im, n);
     }
-    clock_gettime(CLOCK_MONOTONIC, &t1);
-    double elapsed = (t1.tv_sec - t0.tv_sec) + (t1.tv_nsec - t0.tv_nsec) * 1e-9;
+    clock_t t1 = clock();
+    double elapsed = (double)(t1 - t0) / CLOCKS_PER_SEC;
     printf("%%.6f\\n", elapsed / iters * 1e6);
     free(re); free(im);
     return 0;
@@ -277,17 +311,21 @@ int main(int argc, char **argv) {
 """
 
 
-def _compile_and_measure(c_template: str, n: int, iters: int = 500) -> float:
+def _compile_and_measure(c_template: str, n: int, iters: int = 500) -> tuple[float, float]:
     source = c_template % {"n": n}
     bin_path = _compile_c(source)
     if not bin_path:
-        return -1.0
-    result = _measure_c_binary(bin_path, iters)
+        return -1.0, 0.0
+    times = []
+    for _ in range(SAMPLES):
+        t = _measure_c_binary(bin_path, iters)
+        if t > 0:
+            times.append(t)
     try:
         os.unlink(bin_path)
     except OSError:
         pass
-    return result
+    return _stats(times) if times else (-1.0, 0.0)
 
 
 def _try_numpy():
@@ -304,17 +342,21 @@ def _bench_element_add() -> ScalingResult:
     for n in [16, 64, 256, 1024, 4096, 16384]:
         a = [random.uniform(-100, 100) for _ in range(n)]
         b = [random.uniform(-100, 100) for _ in range(n)]
-        py_us = _measure_python(lambda a, b: [a[i] + b[i] for i in range(len(a))], (a, b))
-        c99_us = _compile_and_measure(C_ELEMENT_ADD, n)
-        np_us = None
+        py_times = _measure_python(lambda a, b: [a[i] + b[i] for i in range(len(a))], (a, b))
+        py_mean, py_std = _stats(py_times)
+        c99_mean, c99_std = _compile_and_measure(C_ELEMENT_ADD, n)
+        np_mean, np_std = None, None
         if np:
-            arr_a = np.array(a)
-            arr_b = np.array(b)
-            np_us = _measure_python(lambda: np.add(arr_a, arr_b, out=np.empty_like(arr_a)), (), 10000)
-        sp_py = py_us / c99_us if c99_us > 0 else 0
-        sp_np = py_us / np_us if np_us and np_us > 0 else None
-        points.append(ScalingPoint(n, py_us, c99_us, np_us, sp_py, sp_np))
-    return ScalingResult("element_add", "elementwise_binary", points, "O(n)", "O(n)")
+            arr_a, arr_b = np.array(a), np.array(b)
+            np_times = _measure_python(lambda: np.add(arr_a, arr_b, out=np.empty_like(arr_a)), (), 10000)
+            np_mean, np_std = _stats(np_times)
+        sp_py_mean = py_mean / c99_mean if c99_mean > 0 else 0
+        sp_py_std = 0.0
+        sp_np_mean = py_mean / np_mean if np_mean and np_mean > 0 else None
+        sp_np_std = 0.0
+        points.append(ScalingPoint(n, py_mean, py_std, c99_mean, c99_std, np_mean, np_std,
+                                   sp_py_mean, sp_py_std, sp_np_mean, sp_np_std, 500, len(py_times)))
+    return ScalingResult("element_add", "elementwise_binary", points)
 
 
 def _bench_element_mul() -> ScalingResult:
@@ -323,17 +365,19 @@ def _bench_element_mul() -> ScalingResult:
     for n in [16, 64, 256, 1024, 4096, 16384]:
         a = [random.uniform(-100, 100) for _ in range(n)]
         b = [random.uniform(-100, 100) for _ in range(n)]
-        py_us = _measure_python(lambda a, b: [a[i] * b[i] for i in range(len(a))], (a, b))
-        c99_us = _compile_and_measure(C_ELEMENT_MUL, n)
-        np_us = None
+        py_times = _measure_python(lambda a, b: [a[i] * b[i] for i in range(len(a))], (a, b))
+        py_mean, py_std = _stats(py_times)
+        c99_mean, c99_std = _compile_and_measure(C_ELEMENT_MUL, n)
+        np_mean, np_std = None, None
         if np:
-            arr_a = np.array(a)
-            arr_b = np.array(b)
-            np_us = _measure_python(lambda: np.multiply(arr_a, arr_b, out=np.empty_like(arr_a)), (), 10000)
-        sp_py = py_us / c99_us if c99_us > 0 else 0
-        sp_np = py_us / np_us if np_us and np_us > 0 else None
-        points.append(ScalingPoint(n, py_us, c99_us, np_us, sp_py, sp_np))
-    return ScalingResult("element_mul", "elementwise_binary", points, "O(n)", "O(n)")
+            arr_a, arr_b = np.array(a), np.array(b)
+            np_times = _measure_python(lambda: np.multiply(arr_a, arr_b, out=np.empty_like(arr_a)), (), 10000)
+            np_mean, np_std = _stats(np_times)
+        sp_py_mean = py_mean / c99_mean if c99_mean > 0 else 0
+        sp_np_mean = py_mean / np_mean if np_mean and np_mean > 0 else None
+        points.append(ScalingPoint(n, py_mean, py_std, c99_mean, c99_std, np_mean, np_std,
+                                   sp_py_mean, 0.0, sp_np_mean, 0.0, 500, len(py_times)))
+    return ScalingResult("element_mul", "elementwise_binary", points)
 
 
 def _bench_reduce_sum() -> ScalingResult:
@@ -341,16 +385,19 @@ def _bench_reduce_sum() -> ScalingResult:
     points = []
     for n in [16, 64, 256, 1024, 4096, 16384]:
         x = [random.uniform(-1000, 1000) for _ in range(n)]
-        py_us = _measure_python(lambda x: sum(x), (x,))
-        c99_us = _compile_and_measure(C_REDUCE_SUM, n)
-        np_us = None
+        py_times = _measure_python(lambda x: sum(x), (x,))
+        py_mean, py_std = _stats(py_times)
+        c99_mean, c99_std = _compile_and_measure(C_REDUCE_SUM, n)
+        np_mean, np_std = None, None
         if np:
             arr_x = np.array(x)
-            np_us = _measure_python(lambda: np.sum(arr_x), (), 10000)
-        sp_py = py_us / c99_us if c99_us > 0 else 0
-        sp_np = py_us / np_us if np_us and np_us > 0 else None
-        points.append(ScalingPoint(n, py_us, c99_us, np_us, sp_py, sp_np))
-    return ScalingResult("reduce_sum", "reduction", points, "O(n)", "O(n)")
+            np_times = _measure_python(lambda: np.sum(arr_x), (), 10000)
+            np_mean, np_std = _stats(np_times)
+        sp_py_mean = py_mean / c99_mean if c99_mean > 0 else 0
+        sp_np_mean = py_mean / np_mean if np_mean and np_mean > 0 else None
+        points.append(ScalingPoint(n, py_mean, py_std, c99_mean, c99_std, np_mean, np_std,
+                                   sp_py_mean, 0.0, sp_np_mean, 0.0, 500, len(py_times)))
+    return ScalingResult("reduce_sum", "reduction", points)
 
 
 def _bench_matmul() -> ScalingResult:
@@ -371,19 +418,21 @@ def _bench_matmul() -> ScalingResult:
             return C
 
         iters = 10 if n <= 8 else (5 if n <= 16 else 1)
-        py_us = _measure_python(lambda A, B, n: mm(A, B, n), (A, B, n), iters)
+        py_times = _measure_python(lambda A, B, n: mm(A, B, n), (A, B, n), iters)
+        py_mean, py_std = _stats(py_times)
         c_iters = max(iters * 10, 100)
-        c99_us = _compile_and_measure(C_MATMUL, n, c_iters)
-        np_us = None
+        c99_mean, c99_std = _compile_and_measure(C_MATMUL, n, c_iters)
+        np_mean, np_std = None, None
         if np:
-            np_A = np.array(A)
-            np_B = np.array(B)
+            np_A, np_B = np.array(A), np.array(B)
             np_iters = 100 if n <= 16 else 10
-            np_us = _measure_python(lambda: np_A @ np_B, (), np_iters)
-        sp_py = py_us / c99_us if c99_us > 0 else 0
-        sp_np = py_us / np_us if np_us and np_us > 0 else None
-        points.append(ScalingPoint(n * n, py_us, c99_us, np_us, sp_py, sp_np))
-    return ScalingResult("matmul", "linear_algebra", points, "O(n^3)", "O(n^3)")
+            np_times = _measure_python(lambda: np_A @ np_B, (), np_iters)
+            np_mean, np_std = _stats(np_times)
+        sp_py_mean = py_mean / c99_mean if c99_mean > 0 else 0
+        sp_np_mean = py_mean / np_mean if np_mean and np_mean > 0 else None
+        points.append(ScalingPoint(n * n, py_mean, py_std, c99_mean, c99_std, np_mean, np_std,
+                                   sp_py_mean, 0.0, sp_np_mean, 0.0, c_iters, len(py_times)))
+    return ScalingResult("matmul", "linear_algebra", points)
 
 
 def _bench_fft() -> ScalingResult:
@@ -437,18 +486,21 @@ def _bench_fft() -> ScalingResult:
             return r_out, i_out
 
         py_iters = 50 if n <= 256 else (10 if n <= 1024 else 2)
-        py_us = _measure_python(lambda r, i, n: fft_py(r, i, n), (real, imag, n), py_iters)
+        py_times = _measure_python(lambda r, i, n: fft_py(r, i, n), (real, imag, n), py_iters)
+        py_mean, py_std = _stats(py_times)
         c_iters = max(py_iters, 50)
-        c99_us = _compile_and_measure(C_FFT, n, c_iters)
-        np_us = None
+        c99_mean, c99_std = _compile_and_measure(C_FFT, n, c_iters)
+        np_mean, np_std = None, None
         if np:
             np_real = np.array(real)
             np_imag = np.array(imag)
-            np_us = _measure_python(lambda: np.fft.fft(np_real + 1j * np_imag), (), 1000)
-        sp_py = py_us / c99_us if c99_us > 0 else 0
-        sp_np = py_us / np_us if np_us and np_us > 0 else None
-        points.append(ScalingPoint(n, py_us, c99_us, np_us, sp_py, sp_np))
-    return ScalingResult("fft", "signal_processing", points, "O(n log n)", "O(n log n)")
+            np_times = _measure_python(lambda: np.fft.fft(np_real + 1j * np_imag), (), 1000)
+            np_mean, np_std = _stats(np_times)
+        sp_py_mean = py_mean / c99_mean if c99_mean > 0 else 0
+        sp_np_mean = py_mean / np_mean if np_mean and np_mean > 0 else None
+        points.append(ScalingPoint(n, py_mean, py_std, c99_mean, c99_std, np_mean, np_std,
+                                   sp_py_mean, 0.0, sp_np_mean, 0.0, c_iters, len(py_times)))
+    return ScalingResult("fft", "signal_processing", points)
 
 
 ALL_BENCHMARKS = [
@@ -458,6 +510,21 @@ ALL_BENCHMARKS = [
     _bench_matmul,
     _bench_fft,
 ]
+
+
+def _get_system_info() -> str:
+    lines = [
+        f"Platform: {platform.platform()}",
+        f"Python: {sys.version.split()[0]}",
+        f"CPU: {platform.processor() or 'unknown'}",
+        f"GCC: {_find_gcc() if _has_gcc() else 'not found'}",
+    ]
+    try:
+        import numpy as np
+        lines.append(f"NumPy: {np.__version__}")
+    except ImportError:
+        lines.append("NumPy: not installed")
+    return "\n".join(lines)
 
 
 def run_all() -> list[ScalingResult]:
@@ -471,27 +538,25 @@ def run_all() -> list[ScalingResult]:
 def format_table(results: list[ScalingResult]) -> str:
     lines = []
     for r in results:
-        lines.append(f"### {r.operation} ({r.category}) -- {r.python_complexity}")
+        lines.append(f"### {r.operation}")
         lines.append("")
-        has_numpy = any(p.numpy_time_us is not None for p in r.points)
+        has_numpy = any(p.numpy_us_mean is not None for p in r.points)
         if has_numpy:
-            lines.append("| Input Size | Python (us) | C99 -O2 (us) | NumPy (us) | C99/Python | C99/NumPy |")
-            lines.append("|------------|-------------|--------------|------------|------------|-----------|")
+            lines.append("| Size | Python (us) | C99 -O2 (us) | NumPy (us) | C99/Python | C99/NumPy |")
+            lines.append("|------|-------------|--------------|------------|------------|-----------|")
         else:
-            lines.append("| Input Size | Python (us) | C99 -O2 (us) | C99/Python |")
-            lines.append("|------------|-------------|--------------|-----------|")
+            lines.append("| Size | Python (us) | C99 -O2 (us) | C99/Python |")
+            lines.append("|------|-------------|--------------|-----------|")
         for p in r.points:
-            np_str = f"{p.numpy_time_us:>12.1f}" if p.numpy_time_us is not None else "         N/A"
-            c99_str = f"{p.c99_time_us:>12.1f}" if p.c99_time_us > 0 else "         N/A"
-            sp_np = f"{p.speedup_vs_numpy:>9.0f}x" if p.speedup_vs_numpy is not None else "      N/A"
+            py_str = f"{p.python_us_mean:>10.1f} +/- {p.python_us_std:>6.1f}" if p.python_us_mean > 0 else "N/A"
+            c99_str = f"{p.c99_us_mean:>10.1f} +/- {p.c99_us_std:>6.1f}" if p.c99_us_mean > 0 else "N/A"
+            np_str = f"{p.numpy_us_mean:>10.1f} +/- {p.numpy_us_std:>6.1f}" if p.numpy_us_mean is not None else "N/A"
+            sp_py = f"{p.speedup_vs_python_mean:>8.1f}x" if p.speedup_vs_python_mean > 0 else "N/A"
+            sp_np = f"{p.speedup_vs_numpy_mean:>8.1f}x" if p.speedup_vs_numpy_mean is not None else "N/A"
             if has_numpy:
-                lines.append(
-                    f"| {p.input_size:>10} | {p.python_time_us:>11.1f} | {c99_str} | {np_str} | {p.speedup_vs_python:>9.0f}x | {sp_np} |"
-                )
+                lines.append(f"| {p.input_size:>6} | {py_str} | {c99_str} | {np_str} | {sp_py} | {sp_np} |")
             else:
-                lines.append(
-                    f"| {p.input_size:>10} | {p.python_time_us:>11.1f} | {c99_str} | {p.speedup_vs_python:>9.0f}x |"
-                )
+                lines.append(f"| {p.input_size:>6} | {py_str} | {c99_str} | {sp_py} |")
         lines.append("")
     return "\n".join(lines)
 
@@ -500,7 +565,13 @@ if __name__ == "__main__":
     if not _has_gcc():
         print("ERROR: gcc not found. Cannot run real benchmarks.")
         sys.exit(1)
-    print("Running performance benchmarks (real gcc -O2 compilation)...")
+    print("=== Purce Performance Benchmarks ===")
+    print()
+    print(_get_system_info())
+    print()
+    print(f"Configuration: {WARMUP_RUNS} warmup, {SAMPLES} samples per measurement")
+    print()
+    print("Running benchmarks (real gcc -O2 compilation)...")
     results = run_all()
     print()
     print(format_table(results))

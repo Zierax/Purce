@@ -3,7 +3,6 @@
 Analyzes generated C99 code for warnings, structural quality,
 header completeness, and provenance coverage.
 """
-
 from __future__ import annotations
 
 import os
@@ -32,6 +31,9 @@ class CCodeQualityResult:
     provenance_json_exists: bool
     comments_ratio: float
     max_line_length: int
+    avg_function_length: float = 0.0
+    max_function_length: int = 0
+    has_heap_alloc: bool = False
     issues: list[str] = field(default_factory=list)
 
 
@@ -61,6 +63,7 @@ def _analyze_c_file(content: str, path: str) -> CCodeQualityResult:
     has_restrict = "restrict" in content
     has_const = "const " in content
     has_static = "static " in content
+    has_heap_alloc = "malloc(" in content or "free(" in content or "calloc(" in content or "realloc(" in content
 
     loop_count = len(re.findall(r'\b(for|while)\b', content))
     branch_count = len(re.findall(r'\b(if|else|switch|case)\b', content))
@@ -100,6 +103,8 @@ def _analyze_c_file(content: str, path: str) -> CCodeQualityResult:
         issues.append("No functions found")
     if "#error" in content:
         issues.append("Contains #error directive (unimplemented kernel)")
+    if has_heap_alloc:
+        issues.append("Contains heap allocation (malloc/free/calloc/realloc)")
 
     return CCodeQualityResult(
         file_path=path,
@@ -116,6 +121,9 @@ def _analyze_c_file(content: str, path: str) -> CCodeQualityResult:
         provenance_json_exists=False,
         comments_ratio=comments_ratio,
         max_line_length=max_line_length,
+        avg_function_length=avg_func_len,
+        max_function_length=max_func_len,
+        has_heap_alloc=has_heap_alloc,
         issues=issues,
     )
 
@@ -140,7 +148,6 @@ def analyze_generated_code(source_files: list[tuple[str, str]]) -> CompilationRe
     h_count = 0
     prov_count = 0
     cmake_exists = False
-    all_func_lengths = []
 
     for source_name, source_content in source_files:
         try:
@@ -169,8 +176,9 @@ def analyze_generated_code(source_files: list[tuple[str, str]]) -> CompilationRe
                 issues=[f"Pipeline error: {e}"],
             ))
 
-    avg_func_len = 0.0
-    max_func_len = 0
+    all_func_lengths = [r.avg_function_length for r in all_c_results if r.function_count > 0]
+    avg_func_len = sum(all_func_lengths) / len(all_func_lengths) if all_func_lengths else 0.0
+    max_func_len = max((r.max_function_length for r in all_c_results), default=0)
     files_with_issues = sum(1 for r in all_c_results if r.issues)
     files_clean = len(all_c_results) - files_with_issues
 
@@ -196,8 +204,8 @@ def format_compilation_report(report: CompilationReport) -> str:
         "",
         "## Summary",
         "",
-        f"| Metric | Value |",
-        f"|--------|-------|",
+        "| Metric | Value |",
+        "|--------|-------|",
         f"| Source Python files | {report.source_files} |",
         f"| Generated .c files | {report.c_files} |",
         f"| Generated .h files | {report.h_files} |",
@@ -205,19 +213,24 @@ def format_compilation_report(report: CompilationReport) -> str:
         f"| CMakeLists.txt | {'Yes' if report.cmake_exists else 'No'} |",
         f"| Total C lines | {report.total_c_lines:,} |",
         f"| Total H lines | {report.total_h_lines:,} |",
+        f"| Avg function length | {report.avg_function_length:.1f} lines |",
+        f"| Max function length | {report.max_function_length} lines |",
         f"| Files with issues | {report.files_with_issues} |",
         f"| Clean files | {report.files_clean} |",
         "",
         "## Per-File Quality",
         "",
-        "| File | Lines | Loops | Branches | Functions | Header | Include | Issues |",
-        "|------|-------|-------|----------|-----------|--------|---------|--------|",
+        "| File | Lines | Loops | Branches | Funcs | Avg Len | Max Len | Header | Heap | Issues |",
+        "|------|-------|-------|----------|-------|---------|---------|--------|------|--------|",
     ]
 
     for r in sorted(report.quality_results, key=lambda x: x.total_lines, reverse=True):
         status = "PASS" if not r.issues else f"{len(r.issues)} issues"
+        heap_mark = "Y" if r.has_heap_alloc else "N"
         lines.append(
-            f"| {r.file_path[:40]} | {r.total_lines} | {r.loop_count} | {r.branch_count} | {r.function_count} | {'Y' if r.has_purce_header else 'N'} | {'Y' if r.has_include else 'N'} | {status} |"
+            f"| {r.file_path[:40]} | {r.total_lines} | {r.loop_count} | {r.branch_count} "
+            f"| {r.function_count} | {r.avg_function_length:.0f} | {r.max_function_length} "
+            f"| {'Y' if r.has_purce_header else 'N'} | {heap_mark} | {status} |"
         )
 
     lines.extend([
@@ -226,12 +239,13 @@ def format_compilation_report(report: CompilationReport) -> str:
         "",
     ])
 
+    c_files_with_content = [r for r in report.quality_results if r.total_lines > 0]
     checks = {
-        "PURCE OUTPUT header present": all(r.has_purce_header for r in report.quality_results if r.total_lines > 0),
-        "#include directives present": all(r.has_include for r in report.quality_results if r.total_lines > 0),
-        "No files exceed 120 char line limit": all(r.max_line_length <= 120 for r in report.quality_results if r.total_lines > 0),
-        "All functions have bodies": all(r.function_count > 0 or "#error" in str(r.issues) for r in report.quality_results if r.total_lines > 0),
-        "Zero heap allocation (malloc/free)": True,
+        "PURCE OUTPUT header present": all(r.has_purce_header for r in c_files_with_content),
+        "#include directives present": all(r.has_include for r in c_files_with_content),
+        "No files exceed 120 char line limit": all(r.max_line_length <= 120 for r in c_files_with_content),
+        "All functions have bodies": all(r.function_count > 0 or "#error" in str(r.issues) for r in c_files_with_content),
+        "Zero heap allocation": not any(r.has_heap_alloc for r in c_files_with_content),
         "C99-SOS comment headers": all(r.has_function_header or r.total_lines == 0 for r in report.quality_results),
     }
 

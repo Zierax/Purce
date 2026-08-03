@@ -117,7 +117,7 @@ def run_verification() -> VerificationReport:
     start = time.time()
 
     # ── Phase 1: Unit tests via pytest ──
-    print("[1/4] Running unit tests...")
+    print("[1/5] Running unit tests...")
     try:
         import subprocess
         result = subprocess.run(
@@ -144,10 +144,16 @@ def run_verification() -> VerificationReport:
     except Exception as e:
         report.errors.append(f"Unit tests failed: {e}")
 
-    # ── Phase 2: Fuzz tests ──
-    print("[2/4] Running fuzz tests (25 operations)...")
+    # ── Phase 2: Fuzz tests with C backend ──
+    print("[2/5] Running fuzz tests with C backend (25 operations)...")
     try:
-        fuzzer = DifferentialFuzzer(seed=42)
+        try:
+            fuzzer, compiled = DifferentialFuzzer.with_c_backend(seed=42)
+            c_available = True
+        except (RuntimeError, OSError):
+            fuzzer = DifferentialFuzzer(seed=42)
+            c_available = False
+            report.warnings.append("gcc not available — fuzz tests use Python-only mode")
         results = fuzzer.fuzz_all(iterations=200)
         report.fuzz_operations = len(results)
         for op, result in results.items():
@@ -156,6 +162,8 @@ def run_verification() -> VerificationReport:
             else:
                 report.fuzz_failed += 1
                 report.errors.append(f"Fuzz failed: {op} ({result.failed}/{result.iterations} failed)")
+        if c_available:
+            compiled.close()
     except Exception as e:
         report.errors.append(f"Fuzz tests failed: {e}")
 
