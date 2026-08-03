@@ -4,11 +4,14 @@ Run this after any code change to verify correctness:
   python -m tests.verification_agent
 
 Checks:
-  1. All unit tests pass
-  2. All fuzz tests pass (25 operations)
-  3. Full pipeline integration on real-world code
+  1. All unit tests pass (174+ tests)
+  2. All fuzz tests pass (25 operations, 200 iterations each)
+  3. Full pipeline integration on real-world ML code
   4. Generated C compiles (structural check)
-  5. No regressions in existing behavior
+  5. Zero-heap-allocation verification in generated C
+  6. File provenance headers present in all outputs
+  7. Synthetic pipeline sanity checks
+  8. No regressions in existing behavior
 """
 
 from __future__ import annotations
@@ -37,6 +40,8 @@ class VerificationReport:
     pipeline_kernels_generated: int = 0
     c_files_generated: int = 0
     c_files_structurally_valid: int = 0
+    c_files_heap_free: int = 0
+    c_files_provenance_ok: int = 0
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     duration_seconds: float = 0.0
@@ -47,16 +52,16 @@ class VerificationReport:
 
     def summary(self) -> str:
         lines = [
-            f"=== VERIFICATION REPORT ===",
+            "=== PURCE VERIFICATION REPORT ===",
             f"Timestamp:          {self.timestamp}",
             f"Duration:           {self.duration_seconds:.1f}s",
-            f"",
+            "",
             f"Unit Tests:         {self.tests_passed}/{self.tests_passed + self.tests_failed} passed",
-            f"Fuzz Tests:         {self.fuzz_passed}/{self.fuzz_passed + self.fuzz_failed} passed ({self.fuzz_operations} operations)",
+            f"Fuzz Tests:         {self.fuzz_passed}/{self.fuzz_passed + self.fuzz_failed} passed ({self.fuzz_operations} ops)",
             f"Pipeline Sources:   {self.pipeline_sources_tested}",
             f"Kernels Generated:  {self.pipeline_kernels_generated}",
-            f"C Files:            {self.c_files_generated} ({self.c_files_structurally_valid} structurally valid)",
-            f"",
+            f"C Files:            {self.c_files_generated} ({self.c_files_structurally_valid} valid, {self.c_files_heap_free} heap-free, {self.c_files_provenance_ok} with provenance)",
+            "",
         ]
         if self.errors:
             lines.append(f"ERRORS ({len(self.errors)}):")
@@ -83,6 +88,9 @@ def _run_pipeline(source: str, module_name: str) -> tuple:
     return gen_result, graph
 
 
+HARB_KEYWORDS = ("malloc", "calloc", "realloc", "free(", "new ", "delete ")
+
+
 def _check_c_structural(content: str) -> bool:
     checks = [
         "PURCE OUTPUT" in content,
@@ -90,6 +98,17 @@ def _check_c_structural(content: str) -> bool:
         ("void " in content or "#error" in content),
     ]
     return all(checks)
+
+
+def _check_c_heap_free(content: str) -> bool:
+    for kw in HARB_KEYWORDS:
+        if kw in content:
+            return False
+    return True
+
+
+def _check_c_provenance(content: str) -> bool:
+    return "PURCE OUTPUT" in content and "Source module:" in content
 
 
 def run_verification() -> VerificationReport:
@@ -141,7 +160,7 @@ def run_verification() -> VerificationReport:
         report.errors.append(f"Fuzz tests failed: {e}")
 
     # ── Phase 3: Pipeline integration on real-world sources ──
-    print("[3/4] Running pipeline integration tests...")
+    print("[3/5] Running pipeline integration tests...")
     realworld_dir = os.path.join(os.path.dirname(__file__), "realworld")
     if os.path.isdir(realworld_dir):
         for fname in sorted(os.listdir(realworld_dir)):
@@ -160,11 +179,15 @@ def run_verification() -> VerificationReport:
                             report.c_files_structurally_valid += 1
                         else:
                             report.warnings.append(f"Structural check failed: {cf.path}")
+                        if _check_c_heap_free(cf.content):
+                            report.c_files_heap_free += 1
+                        if _check_c_provenance(cf.content):
+                            report.c_files_provenance_ok += 1
                 except Exception as e:
                     report.errors.append(f"Pipeline failed for {fname}: {e}")
 
     # ── Phase 4: Synthetic pipeline test ──
-    print("[4/4] Running synthetic pipeline test...")
+    print("[4/5] Running synthetic pipeline test...")
     synthetic_sources = [
         ("add", "import numpy as np\ndef add(a, b):\n    return np.add(a, b)"),
         ("matmul", "import numpy as np\ndef mm(A, B):\n    return np.matmul(A, B)"),
@@ -182,8 +205,26 @@ def run_verification() -> VerificationReport:
             for cf in c_files:
                 if _check_c_structural(cf.content):
                     report.c_files_structurally_valid += 1
+                if _check_c_heap_free(cf.content):
+                    report.c_files_heap_free += 1
+                if _check_c_provenance(cf.content):
+                    report.c_files_provenance_ok += 1
         except Exception as e:
             report.errors.append(f"Synthetic pipeline failed for {name}: {e}")
+
+    # ── Phase 5: Memory safety verification ──
+    print("[5/5] Running memory safety verification...")
+    if report.c_files_generated > 0:
+        heap_violations = report.c_files_generated - report.c_files_heap_free
+        if heap_violations > 0:
+            report.warnings.append(f"{heap_violations}/{report.c_files_generated} C files use heap allocation")
+        provenance_gaps = report.c_files_generated - report.c_files_provenance_ok
+        if provenance_gaps > 0:
+            report.warnings.append(f"{provenance_gaps}/{report.c_files_generated} C files missing provenance headers")
+        print(f"  Heap-free: {report.c_files_heap_free}/{report.c_files_generated}")
+        print(f"  Provenance: {report.c_files_provenance_ok}/{report.c_files_generated}")
+    else:
+        print("  No C files generated to verify")
 
     report.duration_seconds = time.time() - start
     return report
