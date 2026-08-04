@@ -849,7 +849,21 @@ class MathIRBuilder:
 
         processed_calls: set[int] = set()
 
+        flat_stmts: list[ast.stmt] = []
         for stmt in func.body:
+            if isinstance(stmt, ast.If):
+                if not stmt.orelse:
+                    for body_stmt in stmt.body:
+                        flat_stmts.append(body_stmt)
+                else:
+                    for body_stmt in stmt.body:
+                        flat_stmts.append(body_stmt)
+                    for else_stmt in stmt.orelse:
+                        flat_stmts.append(else_stmt)
+            elif isinstance(stmt, (ast.Assign, ast.Return, ast.Expr)):
+                flat_stmts.append(stmt)
+
+        for stmt in flat_stmts:
             if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
                 target_name = stmt.targets[0].id if isinstance(stmt.targets[0], ast.Name) else None
                 if target_name is None:
@@ -969,6 +983,19 @@ class MathIRBuilder:
             if isinstance(stmt, ast.Return):
                 return_stmt = stmt
                 break
+            if isinstance(stmt, ast.If):
+                for inner in stmt.body:
+                    if isinstance(inner, ast.Return):
+                        return_stmt = inner
+                        break
+                if return_stmt is not None:
+                    break
+                for inner in stmt.orelse:
+                    if isinstance(inner, ast.Return):
+                        return_stmt = inner
+                        break
+                if return_stmt is not None:
+                    break
 
         if return_stmt is not None and return_stmt.value is not None:
             if isinstance(return_stmt.value, ast.Call):
