@@ -67,6 +67,7 @@ class MathIRNode:
     reentrant: bool = True
 
     dep_kind: DepKind = DepKind.MATH_KERNEL
+    scalar_constants: dict[str, float] = field(default_factory=dict)
 
     def is_pure(self) -> bool:
         return self.effects == [Effect.PURE]

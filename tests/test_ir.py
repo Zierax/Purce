@@ -268,6 +268,8 @@ def matmul_then_add(A, B, c):
 """
         builder = MathIRBuilder(origin_file="test.py")
         graph = builder.build_from_source(source, module="testmod")
-        node = next(iter(graph.nodes.values()))
-        assert node.algorithm == "element_add"
-        assert len(node.reductions) == 2
+        nodes = list(graph.nodes.values())
+        assert len(nodes) == 2
+        algos = [n.algorithm for n in nodes]
+        assert "matmul" in algos
+        assert "element_add" in algos

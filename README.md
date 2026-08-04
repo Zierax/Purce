@@ -29,7 +29,7 @@ Purce is a semantic compiler that takes Python/NumPy code and produces clean, se
 | Python/NumPy is too slow for embedded/real-time | Generates pure C99 — no Python runtime needed |
 | NumPy has 500+ functions, you only use 10 | Purce extracts only what you actually call (semantic slicing) |
 | Generated C code is unreadable/unmaintainable | C99-SOS standard enforces provenance, memory contracts, and naming |
-| No way to verify generated code is correct | Z3 SMT bounds checking + differential fuzzing against compiled C99 |
+| Limited verification of generated code | Z3 SMT bounds checking + differential fuzzing (Python reference) |
 | Platform-specific code is hard to port | PAL stubs for bare-metal targets (ARM Q31/Q15) |
 
 ---

@@ -10,11 +10,22 @@ SUPPORTED_MODULES = {
     "numpy": {
         "dot", "matmul", "add", "subtract", "multiply", "divide",
         "zeros", "ones", "eye", "array",
-        "sum", "mean", "max", "min",
-        "sqrt", "abs", "exp", "log", "sin", "cos", "tan",
+        "sum", "mean", "max", "min", "var",
+        "sqrt", "abs", "exp", "log", "sin", "cos", "tan", "tanh",
+        "maximum", "minimum", "power", "where", "clip",
+        "negative", "sign", "floor", "transpose",
+        "greater", "less", "log10", "logaddexp",
+        "conj", "angle", "real", "imag",
+        "outer", "diag", "copy",
+        "arange", "linspace", "full", "full_like",
+        "ones_like", "zeros_like",
+        "concatenate", "take", "take_along_axis",
+        "argsort", "tril", "triu",
+        "reshape", "squeeze", "expand_dims", "flatten",
     },
-    "numpy.linalg": {"solve", "inv", "cholesky", "eig"},
+    "numpy.linalg": {"solve", "inv", "cholesky", "eig", "norm"},
     "numpy.fft": {"fft", "ifft"},
+    "numpy.random": {"randn", "random", "randint", "uniform", "seed", "beta", "permutation"},
 }
 
 
