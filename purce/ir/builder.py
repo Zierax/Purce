@@ -119,6 +119,11 @@ NUMPY_OP_MAP: dict[str, str] = {
     "numpy.cumsum": "reduce_cumsum",
     "numpy.diff": "reduce_diff",
     "numpy.searchsorted": "array_searchsorted",
+    "numpy.float64": "element_copy",
+    "numpy.float32": "element_copy",
+    "numpy.int64": "element_copy",
+    "numpy.int32": "element_copy",
+    "numpy.bool_": "element_copy",
 }
 
 NUMPY_DTYPE_MAP: dict[str, Dtype] = {
@@ -1218,6 +1223,81 @@ class MathIRBuilder:
 
                 if isinstance(stmt.value, ast.Name) and stmt.value.id in symbol_table:
                     symbol_table[target_name] = symbol_table[stmt.value.id]
+                    continue
+
+                if isinstance(stmt.value, ast.Attribute) and stmt.value.attr == "shape":
+                    if isinstance(stmt.targets[0], ast.Tuple):
+                        shape_var = stmt.value.value.id if isinstance(stmt.value.value, ast.Name) else None
+                        if shape_var:
+                            for i, elt in enumerate(stmt.targets[0].elts):
+                                if isinstance(elt, ast.Name):
+                                    dim_name = f"_dim_{shape_var}_{i}"
+                                    const_name = f"_const_{len(scalar_constants)}"
+                                    if const_name not in existing_names:
+                                        scalar_constants[const_name] = float(i)
+                                        existing_names.add(const_name)
+                                    symbol_table[elt.id] = (const_name, Dtype.INT64)
+                        continue
+                    elif isinstance(stmt.targets[0], ast.Name):
+                        shape_var = stmt.value.value.id if isinstance(stmt.value.value, ast.Name) else None
+                        if shape_var:
+                            const_name = f"_const_{len(scalar_constants)}"
+                            if const_name not in existing_names:
+                                scalar_constants[const_name] = 0.0
+                                existing_names.add(const_name)
+                            symbol_table[target_name] = (const_name, Dtype.INT64)
+                        continue
+
+                if isinstance(stmt.value, ast.BinOp):
+                    left = self._decompose_expr(
+                        stmt.value.left, func_inputs, scalar_constants, intermediates,
+                        symbol_table, existing_names, constant_assignments,
+                        module_name, func.name, origin_file, all_dep_ids,
+                        [node_idx],
+                    )
+                    right = self._decompose_expr(
+                        stmt.value.right, func_inputs, scalar_constants, intermediates,
+                        symbol_table, existing_names, constant_assignments,
+                        module_name, func.name, origin_file, all_dep_ids,
+                        [node_idx],
+                    )
+                    binop_map = {
+                        ast.Add: "element_add", ast.Sub: "element_sub",
+                        ast.Mult: "element_mul", ast.Div: "element_div",
+                        ast.Pow: "element_power", ast.Mod: "element_mod",
+                        ast.FloorDiv: "element_div",
+                    }
+                    if type(stmt.value.op) in binop_map:
+                        algo = binop_map[type(stmt.value.op)]
+                        node_inputs = [left, right]
+                        inter_name = f"_inter_{target_name}"
+                        node_outputs = [(inter_name, Dtype.FLOAT64, "array")]
+                        self._node_counter += 1
+                        nid = _make_node_id(module_name, f"{func.name}_{target_name}")
+                        sig_parts = [f"{dt.name.lower()} {n}" for n, dt, _ in node_inputs]
+                        origin_sig = f"{' -> '.join(sig_parts)} -> array"
+                        self.graph.add_node(MathIRNode(
+                            node_id=nid,
+                            origin_symbol=f"{module_name}.{func.name}",
+                            origin_file=origin_file,
+                            origin_line=stmt.lineno,
+                            origin_commit=self.origin_commit,
+                            origin_signature=origin_sig,
+                            math_intent=f"Assignment '{target_name}' implementing {algo}",
+                            inputs=node_inputs,
+                            outputs=node_outputs,
+                            effects=[Effect.PURE],
+                            algorithm=algo,
+                            reductions=[ReductionEntry(rule="binop_decomposition", description=f"Decomposed BinOp as {algo}", original=algo)],
+                            nested_deps=list(all_dep_ids),
+                            stack_usage=256, heap_usage=None, reentrant=True,
+                            dep_kind=DepKind.MATH_KERNEL,
+                            scalar_constants=dict(scalar_constants),
+                        ))
+                        self.graph.entry_points.append(nid)
+                        all_dep_ids.append(nid)
+                        node_idx += 1
+                        symbol_table[target_name] = (inter_name, Dtype.FLOAT64)
                     continue
 
                 if isinstance(stmt.value, ast.Call):
