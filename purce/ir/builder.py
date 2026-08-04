@@ -487,23 +487,64 @@ class MathIRBuilder:
         all_dep_ids: list[str] = []
         origin_file = self.origin_file
 
+        symbol_table: dict[str, tuple[str, Dtype]] = {}
+        for name, dt, shape in func_inputs:
+            symbol_table[name] = (name, dt)
+
+        constant_assignments: dict[str, float] = {}
+        for stmt in ast.walk(func):
+            if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
+                target = stmt.targets[0]
+                if isinstance(target, ast.Name) and isinstance(stmt.value, ast.Constant):
+                    if isinstance(stmt.value.value, (int, float)):
+                        constant_assignments[target.id] = float(stmt.value.value)
+
+        node_idx = 0
+        processed_call_ids: set[int] = set()
+
         for idx, (target, call_node) in enumerate(operations):
             algo = NUMPY_OP_MAP.get(target, "unknown")
             is_last = (idx == len(operations) - 1)
+            processed_call_ids.add(id(call_node))
 
+            node_idx_ref = [node_idx]
             node_inputs: list[tuple[str, Dtype, str]] = []
             for arg in call_node.args:
-                if isinstance(arg, ast.List):
+                if isinstance(arg, (ast.List, ast.Tuple)):
                     for elt in arg.elts:
-                        resolved = self._resolve_arg_to_name(
-                            elt, func_inputs, scalar_constants, intermediates, existing_names,
-                        )
-                        node_inputs.append(resolved)
+                        if isinstance(elt, ast.Call) and id(elt) in processed_call_ids:
+                            resolved = self._resolve_arg_to_name(
+                                elt, func_inputs, scalar_constants, intermediates, existing_names,
+                            )
+                        else:
+                            resolved = self._decompose_expr(
+                                elt, func_inputs, scalar_constants, intermediates,
+                                symbol_table, existing_names, constant_assignments,
+                                module_name, func.name, origin_file, all_dep_ids,
+                                node_idx_ref,
+                            )
+                        if isinstance(resolved, list):
+                            node_inputs.extend(resolved)
+                        else:
+                            node_inputs.append(resolved)
                 else:
-                    resolved = self._resolve_arg_to_name(
-                        arg, func_inputs, scalar_constants, intermediates, existing_names,
-                    )
-                    node_inputs.append(resolved)
+                    if isinstance(arg, ast.Call) and id(arg) in processed_call_ids:
+                        resolved = self._resolve_arg_to_name(
+                            arg, func_inputs, scalar_constants, intermediates, existing_names,
+                        )
+                    else:
+                        resolved = self._decompose_expr(
+                            arg, func_inputs, scalar_constants, intermediates,
+                            symbol_table, existing_names, constant_assignments,
+                            module_name, func.name, origin_file, all_dep_ids,
+                            node_idx_ref,
+                        )
+                    if isinstance(resolved, list):
+                        node_inputs.extend(resolved)
+                    else:
+                        node_inputs.append(resolved)
+
+            node_idx = node_idx_ref[0]
 
             if is_last:
                 node_outputs = list(func_outputs)
@@ -661,7 +702,6 @@ class MathIRBuilder:
                 symbol_table, existing_names, constant_assignments,
                 module_name, func_name, origin_file, all_dep_ids, node_idx,
             )
-            const_val = -scalar_constants.get(inner[0], 0.0)
             if inner[0] in scalar_constants:
                 const_val = -scalar_constants[inner[0]]
                 const_name = f"_const_{len(scalar_constants)}"
@@ -669,7 +709,38 @@ class MathIRBuilder:
                     scalar_constants[const_name] = const_val
                     existing_names.add(const_name)
                 return (const_name, Dtype.FLOAT64, "scalar")
-            return inner
+            neg_const_name = f"_const_{len(scalar_constants)}"
+            if neg_const_name not in existing_names:
+                scalar_constants[neg_const_name] = -1.0
+                existing_names.add(neg_const_name)
+            inter_name = f"_inter_neg_{node_idx[0]}"
+            node_outputs = [(inter_name, Dtype.FLOAT64, "array")]
+            node_idx[0] += 1
+            self._node_counter += 1
+            node_id = _make_node_id(module_name, f"{func_name}_neg_{node_idx[0]}")
+            node = MathIRNode(
+                node_id=node_id,
+                origin_symbol=f"{module_name}.{func_name}",
+                origin_file=origin_file,
+                origin_line=0,
+                origin_commit=self.origin_commit,
+                origin_signature=f"double {neg_const_name}, double {inner[0]} -> array",
+                math_intent="Negation via element_mul with -1",
+                inputs=[(neg_const_name, Dtype.FLOAT64, "scalar"), inner],
+                outputs=node_outputs,
+                effects=[Effect.PURE],
+                algorithm="element_mul",
+                reductions=[ReductionEntry(rule="unary_neg", description="Negation via multiply", original="neg")],
+                nested_deps=list(all_dep_ids),
+                stack_usage=256, heap_usage=None, reentrant=True,
+                dep_kind=DepKind.MATH_KERNEL,
+                scalar_constants=dict(scalar_constants),
+            )
+            self.graph.add_node(node)
+            self.graph.entry_points.append(node_id)
+            all_dep_ids.append(node_id)
+            intermediates[f"_neg_{node_idx[0]}"] = inter_name
+            return (inter_name, Dtype.FLOAT64, "array")
 
         if isinstance(expr, ast.BinOp):
             left = self._decompose_expr(
@@ -732,7 +803,7 @@ class MathIRBuilder:
                 return (inter_name, Dtype.FLOAT64, "array")
             return left
 
-        if isinstance(expr, ast.List):
+        if isinstance(expr, (ast.List, ast.Tuple)):
             resolved_elts = []
             for elt in expr.elts:
                 r = self._decompose_expr(
@@ -740,7 +811,10 @@ class MathIRBuilder:
                     symbol_table, existing_names, constant_assignments,
                     module_name, func_name, origin_file, all_dep_ids, node_idx,
                 )
-                resolved_elts.append(r)
+                if isinstance(r, list):
+                    resolved_elts.extend(r)
+                else:
+                    resolved_elts.append(r)
             return resolved_elts[0] if len(resolved_elts) == 1 else resolved_elts
 
         if isinstance(expr, ast.Call):
@@ -1342,7 +1416,7 @@ class MathIRBuilder:
                         node_idx_ref = [node_idx]
                         node_inputs: list[tuple[str, Dtype, str]] = []
                         for arg in stmt.value.args:
-                            if isinstance(arg, ast.List):
+                            if isinstance(arg, (ast.List, ast.Tuple)):
                                 for elt in arg.elts:
                                     resolved = self._decompose_expr(
                                         elt, func_inputs, scalar_constants, intermediates,
@@ -1453,7 +1527,7 @@ class MathIRBuilder:
                     node_idx_ref = [node_idx]
                     node_inputs: list[tuple[str, Dtype, str]] = []
                     for arg in return_stmt.value.args:
-                        if isinstance(arg, ast.List):
+                        if isinstance(arg, (ast.List, ast.Tuple)):
                             for elt in arg.elts:
                                 resolved = self._decompose_expr(
                                     elt, func_inputs, scalar_constants, intermediates,
@@ -1614,6 +1688,39 @@ class MathIRBuilder:
                     scalar_constants[const_name] = const_val
                     existing_names.add(const_name)
                 return (const_name, Dtype.FLOAT64, "scalar")
+            if isinstance(arg_node.operand, ast.Name):
+                if arg_node.operand.id in symbol_table:
+                    name, dt = symbol_table[arg_node.operand.id]
+                    neg_name = f"_const_{len(scalar_constants)}"
+                    if neg_name not in existing_names:
+                        scalar_constants[neg_name] = -1.0
+                        existing_names.add(neg_name)
+                    return (neg_name, Dtype.FLOAT64, "scalar")
+                if arg_node.operand.id in constant_assignments:
+                    const_val = -constant_assignments[arg_node.operand.id]
+                    const_name = f"_const_{len(scalar_constants)}"
+                    if const_name not in existing_names:
+                        scalar_constants[const_name] = const_val
+                        existing_names.add(const_name)
+                    return (const_name, Dtype.FLOAT64, "scalar")
+            return (f"_unresolved_{len(existing_names)}", Dtype.FLOAT64, None)
+
+        if isinstance(arg_node, ast.BinOp):
+            binop_map = {
+                ast.Add: "element_add", ast.Sub: "element_sub",
+                ast.Mult: "element_mul", ast.Div: "element_div",
+                ast.Pow: "element_power", ast.Mod: "element_mod",
+            }
+            if type(arg_node.op) in binop_map:
+                left = self._resolve_arg_for_full_body(
+                    arg_node.left, func_inputs, scalar_constants, intermediates,
+                    symbol_table, existing_names, constant_assignments,
+                )
+                right = self._resolve_arg_for_full_body(
+                    arg_node.right, func_inputs, scalar_constants, intermediates,
+                    symbol_table, existing_names, constant_assignments,
+                )
+                return (f"_unresolved_{len(existing_names)}", Dtype.FLOAT64, None)
 
         return (f"_unresolved_{len(existing_names)}", Dtype.FLOAT64, None)
 
