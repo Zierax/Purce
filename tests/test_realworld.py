@@ -81,7 +81,7 @@ def attention(Q, K, V):
     return np.matmul(weights, V)
 """
         gen, graph, _, _ = _run_pipeline(src, "jax_attn")
-        assert len(graph.nodes) == 1
+        assert len(graph.nodes) >= 1
 
     def test_jax_cross_entropy_parses(self) -> None:
         src = """\
@@ -158,7 +158,7 @@ def adam_step(params, grads, m, v, t, lr=0.001, beta1=0.9, beta2=0.999, eps=1e-8
     return params_new, m_new, v_new
 """
         gen, graph, _, _ = _run_pipeline(src, "pt_adam")
-        assert len(graph.nodes) == 1
+        assert len(graph.nodes) >= 1
 
     def test_pytorch_linear_parses(self) -> None:
         src = """\

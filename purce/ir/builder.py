@@ -274,6 +274,14 @@ class MathIRBuilder:
             )
             return
 
+        has_multi_stmt = self._has_multi_statement_numpy(func)
+        if has_multi_stmt:
+            self._decompose_full_body(
+                func, module_name, inputs, outputs, effects,
+                existing_input_names, scalar_constants, local_funcs or {},
+            )
+            return
+
         algorithms = []
         nested_deps: list[str] = []
         reductions: list[ReductionEntry] = []
@@ -423,10 +431,17 @@ class MathIRBuilder:
 
             node_inputs: list[tuple[str, Dtype, str]] = []
             for arg in call_node.args:
-                resolved = self._resolve_arg_to_name(
-                    arg, func_inputs, scalar_constants, intermediates, existing_names,
-                )
-                node_inputs.append(resolved)
+                if isinstance(arg, ast.List):
+                    for elt in arg.elts:
+                        resolved = self._resolve_arg_to_name(
+                            elt, func_inputs, scalar_constants, intermediates, existing_names,
+                        )
+                        node_inputs.append(resolved)
+                else:
+                    resolved = self._resolve_arg_to_name(
+                        arg, func_inputs, scalar_constants, intermediates, existing_names,
+                    )
+                    node_inputs.append(resolved)
 
             if is_last:
                 node_outputs = list(func_outputs)
@@ -480,6 +495,308 @@ class MathIRBuilder:
             self.graph.add_node(node)
             self.graph.entry_points.append(node_id)
             all_dep_ids.append(node_id)
+
+    def _has_multi_statement_numpy(self, func: ast.FunctionDef) -> bool:
+        numpy_calls_in_assignments = 0
+        numpy_calls_in_return = 0
+        for stmt in ast.walk(func):
+            if isinstance(stmt, ast.Assign):
+                for child in ast.walk(stmt.value):
+                    if isinstance(child, ast.Call):
+                        target = ""
+                        if isinstance(child.func, ast.Attribute):
+                            target = _get_qualified_name(child.func)
+                        elif isinstance(child.func, ast.Name):
+                            target = child.func.id
+                        if target.startswith("np."):
+                            target = "numpy." + target[3:]
+                        if target in NUMPY_OP_MAP:
+                            numpy_calls_in_assignments += 1
+        for child in ast.walk(func):
+            if isinstance(child, ast.Return) and child.value is not None:
+                for sub in ast.walk(child.value):
+                    if isinstance(sub, ast.Call):
+                        target = ""
+                        if isinstance(sub.func, ast.Attribute):
+                            target = _get_qualified_name(sub.func)
+                        elif isinstance(sub.func, ast.Name):
+                            target = sub.func.id
+                        if target.startswith("np."):
+                            target = "numpy." + target[3:]
+                        if target in NUMPY_OP_MAP:
+                            numpy_calls_in_return += 1
+        return numpy_calls_in_assignments > 0 and (numpy_calls_in_assignments + numpy_calls_in_return) > 1
+
+    def _resolve_call_target(self, call_node: ast.Call) -> str:
+        target = ""
+        if isinstance(call_node.func, ast.Attribute):
+            target = _get_qualified_name(call_node.func)
+        elif isinstance(call_node.func, ast.Name):
+            target = call_node.func.id
+        if target.startswith("np."):
+            target = "numpy." + target[3:]
+        return target
+
+    def _collect_all_numpy_calls_from_body(self, func: ast.FunctionDef,
+                                           local_funcs: dict[str, ast.FunctionDef]) -> list[tuple[str, ast.Call]]:
+        operations: list[tuple[str, ast.Call]] = []
+        for stmt in ast.walk(func):
+            if isinstance(stmt, ast.Assign):
+                if isinstance(stmt.value, ast.Call):
+                    self._collect_numpy_calls(stmt.value, operations, local_funcs)
+            elif isinstance(stmt, ast.Return) and stmt.value is not None:
+                if isinstance(stmt.value, ast.Call):
+                    self._collect_numpy_calls(stmt.value, operations, local_funcs)
+                elif isinstance(stmt.value, ast.Tuple):
+                    for elt in stmt.value.elts:
+                        if isinstance(elt, ast.Call):
+                            self._collect_numpy_calls(elt, operations, local_funcs)
+        return operations
+
+    def _decompose_full_body(
+        self,
+        func: ast.FunctionDef,
+        module_name: str,
+        func_inputs: list[tuple[str, Dtype, str]],
+        func_outputs: list[tuple[str, Dtype, str]],
+        effects: list[Effect],
+        existing_names: set[str],
+        scalar_constants: dict[str, float],
+        local_funcs: dict[str, ast.FunctionDef],
+    ) -> None:
+        all_operations = self._collect_all_numpy_calls_from_body(func, local_funcs)
+        if not all_operations:
+            return
+
+        symbol_table: dict[str, tuple[str, Dtype]] = {}
+        for name, dt, shape in func_inputs:
+            symbol_table[name] = (name, dt)
+
+        constant_assignments: dict[str, float] = {}
+        for stmt in ast.walk(func):
+            if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
+                target = stmt.targets[0]
+                if isinstance(target, ast.Name) and isinstance(stmt.value, ast.Constant):
+                    if isinstance(stmt.value.value, (int, float)):
+                        constant_assignments[target.id] = float(stmt.value.value)
+
+        intermediates: dict[str, str] = {}
+        all_reductions: list[ReductionEntry] = []
+        all_dep_ids: list[str] = []
+        origin_file = self.origin_file
+        node_idx = 0
+
+        processed_calls: set[int] = set()
+
+        for stmt in func.body:
+            if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
+                target_name = stmt.targets[0].id if isinstance(stmt.targets[0], ast.Name) else None
+                if target_name is None:
+                    continue
+
+                if isinstance(stmt.value, ast.Constant) and isinstance(stmt.value.value, (int, float)):
+                    const_val = float(stmt.value.value)
+                    const_name = f"_const_{len(scalar_constants)}"
+                    dt = Dtype.FLOAT64 if isinstance(stmt.value.value, float) else Dtype.INT64
+                    scalar_constants[const_name] = const_val
+                    existing_names.add(const_name)
+                    symbol_table[target_name] = (const_name, dt)
+                    continue
+
+                if isinstance(stmt.value, ast.Name) and stmt.value.id in symbol_table:
+                    symbol_table[target_name] = symbol_table[stmt.value.id]
+                    continue
+
+                if isinstance(stmt.value, ast.Call):
+                    call_target = self._resolve_call_target(stmt.value)
+                    if call_target in NUMPY_OP_MAP:
+                        stmt_id = id(stmt.value)
+                        if stmt_id in processed_calls:
+                            continue
+                        processed_calls.add(stmt_id)
+
+                        algo = NUMPY_OP_MAP[call_target]
+
+                        node_inputs: list[tuple[str, Dtype, str]] = []
+                        for arg in stmt.value.args:
+                            if isinstance(arg, ast.List):
+                                for elt in arg.elts:
+                                    resolved = self._resolve_arg_for_full_body(
+                                        elt, func_inputs, scalar_constants, intermediates,
+                                        symbol_table, existing_names, constant_assignments,
+                                    )
+                                    node_inputs.append(resolved)
+                            else:
+                                resolved = self._resolve_arg_for_full_body(
+                                    arg, func_inputs, scalar_constants, intermediates,
+                                    symbol_table, existing_names, constant_assignments,
+                                )
+                                node_inputs.append(resolved)
+
+                        inter_name = f"_inter_{target_name}"
+                        node_outputs = [(inter_name, Dtype.FLOAT64, "array")]
+                        intermediates[call_target] = inter_name
+                        intermediates[f"{call_target}_{node_idx}"] = inter_name
+                        symbol_table[target_name] = (inter_name, Dtype.FLOAT64)
+
+                        reductions = [ReductionEntry(
+                            rule="numpy_op_extraction",
+                            description=f"Extracted {call_target} as {algo} kernel",
+                            original=call_target,
+                        )]
+                        all_reductions.extend(reductions)
+
+                        sig_parts = []
+                        for name, dt, _ in node_inputs:
+                            sig_parts.append(f"{dt.name.lower()} {name}")
+                        origin_sig = f"{' -> '.join(sig_parts)} -> array"
+
+                        self._node_counter += 1
+                        node_id = _make_node_id(module_name, f"{func.name}_{target_name}")
+
+                        math_intent = f"Assignment '{target_name}' implementing {algo}"
+
+                        node = MathIRNode(
+                            node_id=node_id,
+                            origin_symbol=f"{module_name}.{func.name}",
+                            origin_file=origin_file,
+                            origin_line=stmt.lineno,
+                            origin_commit=self.origin_commit,
+                            origin_signature=origin_sig,
+                            math_intent=math_intent,
+                            inputs=node_inputs,
+                            outputs=node_outputs,
+                            effects=[Effect.PURE],
+                            algorithm=algo,
+                            reductions=reductions,
+                            nested_deps=list(all_dep_ids),
+                            stack_usage=256,
+                            heap_usage=None,
+                            reentrant=True,
+                            dep_kind=DepKind.MATH_KERNEL,
+                            scalar_constants=dict(scalar_constants),
+                        )
+
+                        self.graph.add_node(node)
+                        self.graph.entry_points.append(node_id)
+                        all_dep_ids.append(node_id)
+                        node_idx += 1
+
+        return_stmt = None
+        for stmt in func.body:
+            if isinstance(stmt, ast.Return):
+                return_stmt = stmt
+                break
+
+        if return_stmt is not None and return_stmt.value is not None:
+            if isinstance(return_stmt.value, ast.Call):
+                call_target = self._resolve_call_target(return_stmt.value)
+                if call_target in NUMPY_OP_MAP:
+                    algo = NUMPY_OP_MAP[call_target]
+
+                    node_inputs: list[tuple[str, Dtype, str]] = []
+                    for arg in return_stmt.value.args:
+                        resolved = self._resolve_arg_for_full_body(
+                            arg, func_inputs, scalar_constants, intermediates,
+                            symbol_table, existing_names, constant_assignments,
+                        )
+                        node_inputs.append(resolved)
+
+                    node_outputs = list(func_outputs)
+                    reductions = [ReductionEntry(
+                        rule="numpy_op_extraction",
+                        description=f"Extracted {call_target} as {algo} kernel",
+                        original=call_target,
+                    )]
+                    all_reductions.extend(reductions)
+
+                    sig_parts = []
+                    for name, dt, _ in node_inputs:
+                        sig_parts.append(f"{dt.name.lower()} {name}")
+                    origin_sig = f"{' -> '.join(sig_parts)} -> {func_outputs[0][1].name.lower()}"
+
+                    self._node_counter += 1
+                    node_id = _make_node_id(module_name, func.name)
+
+                    math_intent = f"Return of '{func.name}' implementing {algo}"
+
+                    node = MathIRNode(
+                        node_id=node_id,
+                        origin_symbol=f"{module_name}.{func.name}",
+                        origin_file=origin_file,
+                        origin_line=return_stmt.lineno,
+                        origin_commit=self.origin_commit,
+                        origin_signature=origin_sig,
+                        math_intent=math_intent,
+                        inputs=node_inputs,
+                        outputs=node_outputs,
+                        effects=effects,
+                        algorithm=algo,
+                        reductions=reductions,
+                        nested_deps=list(all_dep_ids),
+                        stack_usage=256,
+                        heap_usage=None,
+                        reentrant=Effect.ALLOC not in effects,
+                        dep_kind=DepKind.MATH_KERNEL,
+                        scalar_constants=dict(scalar_constants),
+                    )
+
+                    self.graph.add_node(node)
+                    self.graph.entry_points.append(node_id)
+                    all_dep_ids.append(node_id)
+
+    def _resolve_arg_for_full_body(self, arg_node: ast.expr,
+                                   func_inputs: list[tuple[str, Dtype, str]],
+                                   scalar_constants: dict[str, float],
+                                   intermediates: dict[str, str],
+                                   symbol_table: dict[str, tuple[str, Dtype]],
+                                   existing_names: set[str],
+                                   constant_assignments: dict[str, float] | None = None) -> tuple[str, Dtype, str | None]:
+        if isinstance(arg_node, ast.Name):
+            if arg_node.id in symbol_table:
+                name, dt = symbol_table[arg_node.id]
+                return (name, dt, None)
+            if arg_node.id in existing_names:
+                for name, dt, shape in func_inputs:
+                    if name == arg_node.id:
+                        return (name, dt, None)
+                return (arg_node.id, Dtype.FLOAT64, None)
+            if arg_node.id in intermediates:
+                inter_name = intermediates[arg_node.id]
+                return (inter_name, Dtype.FLOAT64, None)
+            if constant_assignments and arg_node.id in constant_assignments:
+                const_val = constant_assignments[arg_node.id]
+                const_name = f"_const_{len(scalar_constants)}"
+                if const_name not in existing_names:
+                    scalar_constants[const_name] = const_val
+                    existing_names.add(const_name)
+                return (const_name, Dtype.FLOAT64, "scalar")
+
+        if isinstance(arg_node, ast.Constant) and isinstance(arg_node.value, (int, float)):
+            const_val = float(arg_node.value)
+            const_name = f"_const_{len(scalar_constants)}"
+            if const_name not in existing_names:
+                dt = Dtype.FLOAT64 if isinstance(arg_node.value, float) else Dtype.INT64
+                scalar_constants[const_name] = const_val
+                existing_names.add(const_name)
+            return (const_name, Dtype.FLOAT64, "scalar")
+
+        if isinstance(arg_node, ast.Call):
+            call_target = self._resolve_call_target(arg_node)
+            if call_target in intermediates:
+                inter_name = intermediates[call_target]
+                return (inter_name, Dtype.FLOAT64, None)
+
+        if isinstance(arg_node, ast.UnaryOp) and isinstance(arg_node.op, ast.USub):
+            if isinstance(arg_node.operand, ast.Constant) and isinstance(arg_node.operand.value, (int, float)):
+                const_val = -float(arg_node.operand.value)
+                const_name = f"_const_{len(scalar_constants)}"
+                if const_name not in existing_names:
+                    scalar_constants[const_name] = const_val
+                    existing_names.add(const_name)
+                return (const_name, Dtype.FLOAT64, "scalar")
+
+        return (f"_unresolved_{len(existing_names)}", Dtype.FLOAT64, None)
 
     def _collect_numpy_calls(self, call_node: ast.Call, operations: list[tuple[str, ast.Call]],
                              local_funcs: dict[str, ast.FunctionDef]) -> None:

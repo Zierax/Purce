@@ -100,6 +100,7 @@ BODY_PARAM_MAP: dict[str, list[tuple[str, str]]] = {
     "array_take": [("x", "input_0"), ("idx", "input_1"), ("out", "output_0"), ("k", "length")],
     "array_argsort": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
     "array_permutation": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
+    "array_literal": [("out", "output_0"), ("n", "length")],
     "array_reshape": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
     "array_squeeze": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
     "array_expand_dims": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
@@ -169,6 +170,7 @@ ALGORITHM_C_IMPL = {
     "array_take": "__generated_array_take",
     "array_argsort": "__generated_array_argsort",
     "array_permutation": "__generated_array_permutation",
+    "array_literal": "__generated_array_literal",
     "array_reshape": "__generated_array_reshape",
     "array_squeeze": "__generated_array_squeeze",
     "array_expand_dims": "__generated_array_expand_dims",
@@ -708,6 +710,9 @@ MATH_KERNEL_BODIES: dict[str, str] = {
     for (int i = 0; i < n; i++) {
         out[i] = x[i];
     }""",
+    "array_literal": """\
+    /* Array literal: out contains the literal values */
+    (void)n;""",
     "array_squeeze": """\
     /* Element-wise copy (squeeze removes length-1 dims) */
     for (int i = 0; i < n; i++) {
@@ -878,6 +883,7 @@ DERIVED_PARAMS: dict[str, list[str]] = {
     "array_take": ["k"],
     "array_argsort": ["n"],
     "array_permutation": ["n"],
+    "array_literal": ["n"],
     "array_reshape": ["n"],
     "array_squeeze": ["n"],
     "array_expand_dims": ["n"],
