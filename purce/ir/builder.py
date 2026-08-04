@@ -239,9 +239,15 @@ class MathIRBuilder:
             return
 
         inputs: list[tuple[str, Dtype, str]] = []
-        for arg in func.args.args:
+        for i, arg in enumerate(func.args.args):
             dt = _resolve_dtype_annotation(arg.annotation)
             shape = "scalar" if arg.arg in ("self", "cls") else "array"
+            defaults_offset = len(func.args.args) - len(func.args.defaults)
+            default_idx = i - defaults_offset
+            if default_idx >= 0 and default_idx < len(func.args.defaults):
+                def_val = func.args.defaults[default_idx]
+                if isinstance(def_val, ast.Constant) and isinstance(def_val.value, (int, float)):
+                    shape = "scalar"
             inputs.append((arg.arg, dt, shape))
 
         existing_input_names = {arg.arg for arg in func.args.args}
@@ -434,6 +440,27 @@ class MathIRBuilder:
             if target in intermediates:
                 inter_name = intermediates[target]
                 return (inter_name, Dtype.FLOAT64, None)
+
+        if isinstance(arg_node, ast.UnaryOp) and isinstance(arg_node.op, ast.USub):
+            if isinstance(arg_node.operand, ast.Constant) and isinstance(arg_node.operand.value, (int, float)):
+                const_val = -float(arg_node.operand.value)
+                const_name = f"_const_{len(scalar_constants)}"
+                if const_name not in existing_names:
+                    scalar_constants[const_name] = const_val
+                    existing_names.add(const_name)
+                return (const_name, Dtype.FLOAT64, "scalar")
+            if isinstance(arg_node.operand, ast.Name) and arg_node.operand.id in intermediates:
+                inter_name = intermediates[arg_node.operand.id]
+                neg_name = f"_const_{len(scalar_constants)}"
+                if neg_name not in existing_names:
+                    scalar_constants[neg_name] = -1.0
+                    existing_names.add(neg_name)
+                return (neg_name, Dtype.FLOAT64, "scalar")
+
+        if isinstance(arg_node, ast.Name):
+            for name, dt, shape in func_inputs:
+                if name == arg_node.id:
+                    return (name, dt, None)
 
         return (f"_unresolved_{len(existing_names)}", Dtype.FLOAT64, None)
 
