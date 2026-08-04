@@ -28,14 +28,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Provenance metadata in every generated file
   - Auto-generated CMakeLists.txt
 
-#### Supported Operations (55+)
-- **Element-wise**: add, sub, mul, div, neg, abs, sqrt, exp, log, sin, cos, tan, tanh, power, sign, floor, clip, where, greater, less, log10, logaddexp, conj, angle, real, imag, copy
-- **Reductions**: sum, mean, max, min, var
-- **Matrix**: matmul, transpose, outer, diag, tril, triu
-- **Linear algebra**: solve, inverse, cholesky, eig, norm
+#### Supported Operations (85+)
+- **Element-wise**: add, sub, mul, div, neg, abs, sqrt, exp, log, sin, cos, tan, tanh, power, sign, floor, ceil, trunc, clip, where, greater, less, log10, logaddexp, conj, angle, real, imag, copy, round, isclose, isnan, isinf
+- **Reductions**: sum, mean, max, min, var, prod, cumsum, diff, argmax, argmin, any, all
+- **Matrix**: matmul, transpose, outer, diag, tril, triu, sort
+- **Linear algebra**: solve, inverse, cholesky, eig, norm, det, qr, svd
 - **Signal processing**: fft, ifft
 - **Allocation**: zeros, ones, eye, arange, linspace, full, full_like, ones_like, zeros_like, random
-- **Array ops**: concatenate, take, argsort, permutation, reshape, squeeze, expand_dims, flatten
+- **Array ops**: concatenate, take, argsort, permutation, reshape, squeeze, expand_dims, flatten, tile, repeat, flip, roll, split, unique, searchsorted, stack, vstack, hstack
 
 #### Verification
 - **Z3 SMT Verifier**: Symbolic verification for all operations
@@ -46,7 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **5-Phase Verification Agent**:
   1. Unit tests (210 tests)
   2. Fuzz tests (25 ops × 1000 iterations = 25,000 test cases)
-  3. Pipeline integration (real-world ML sources)
+  3. Pipeline integration (real-world ML sources: 23 files → 802 C kernels)
   4. Synthetic pipeline sanity checks
   5. Memory safety verification (heap-free, provenance)
 
@@ -58,7 +58,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Testing
 - 210 tests across 10 test modules (168 passing, 42 skipped when gcc unavailable)
-- Real-world test projects: 23 ML/scientific source files
+- Real-world test projects: 23 ML/scientific source files (802 C kernels generated)
+- Semantic compiler features: multi-statement decomposition, recursive expression decomposition, .shape/.transpose resolution, 85+ operations
 - C compilation verification tests (requires gcc)
 - Full pipeline integration tests
 
