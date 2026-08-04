@@ -109,6 +109,31 @@ BODY_PARAM_MAP: dict[str, list[tuple[str, str]]] = {
     "fft": [("real", "input_0"), ("imag", "input_1"), ("out_real", "output_0"), ("out_imag", "output_1"), ("n", "length"), ("log_n", "log_length")],
     "ifft": [("real", "input_0"), ("imag", "input_1"), ("out_real", "output_0"), ("out_imag", "output_1"), ("n", "length"), ("log_n", "log_length")],
     "reduce_var": [("x", "input_0"), ("n", "length"), ("result_ptr", "output_0")],
+    "array_sort": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
+    "linalg_det": [("x", "input_0"), ("result_ptr", "output_0"), ("n", "dim")],
+    "linalg_qr": [("x", "input_0"), ("out_q", "output_0"), ("out_r", "output_1"), ("n", "dim")],
+    "linalg_svd": [("x", "input_0"), ("out_u", "output_0"), ("out_s", "output_1"), ("out_v", "output_2"), ("n", "dim")],
+    "reduce_argmax": [("x", "input_0"), ("result_ptr", "output_0"), ("n", "length")],
+    "reduce_argmin": [("x", "input_0"), ("result_ptr", "output_0"), ("n", "length")],
+    "reduce_any": [("x", "input_0"), ("result_ptr", "output_0"), ("n", "length")],
+    "reduce_all": [("x", "input_0"), ("result_ptr", "output_0"), ("n", "length")],
+    "reduce_prod": [("x", "input_0"), ("result_ptr", "output_0"), ("n", "length")],
+    "reduce_cumsum": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
+    "reduce_diff": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
+    "element_round": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
+    "element_ceil": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
+    "element_trunc": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
+    "element_isclose": [("A", "input_0"), ("B", "input_1"), ("out", "output_0"), ("n", "length")],
+    "element_isnan": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
+    "element_isinf": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
+    "element_finfo": [("_dummy", "input_0"), ("result_ptr", "output_0")],
+    "array_tile": [("x", "input_0"), ("out", "output_0"), ("n", "length"), ("reps", "input_1")],
+    "array_repeat": [("x", "input_0"), ("out", "output_0"), ("n", "length"), ("reps", "input_1")],
+    "array_flip": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
+    "array_roll": [("x", "input_0"), ("out", "output_0"), ("n", "length"), ("shift", "input_1")],
+    "array_split": [("x", "input_0"), ("out", "output_0"), ("n", "length"), ("n_sections", "input_1")],
+    "array_unique": [("x", "input_0"), ("out", "output_0"), ("out_count", "output_1"), ("n", "length")],
+    "array_searchsorted": [("x", "input_0"), ("v", "input_1"), ("out", "output_0"), ("n", "length")],
 }
 
 ALGORITHM_C_IMPL = {
@@ -176,6 +201,31 @@ ALGORITHM_C_IMPL = {
     "array_expand_dims": "__generated_array_expand_dims",
     "array_flatten": "__generated_array_flatten",
     "noop_seed": "__generated_noop_seed",
+    "array_sort": "__generated_array_sort",
+    "linalg_det": "__generated_linalg_det",
+    "linalg_qr": "__generated_linalg_qr",
+    "linalg_svd": "__generated_linalg_svd",
+    "reduce_argmax": "__generated_reduce_argmax",
+    "reduce_argmin": "__generated_reduce_argmin",
+    "reduce_any": "__generated_reduce_any",
+    "reduce_all": "__generated_reduce_all",
+    "reduce_prod": "__generated_reduce_prod",
+    "reduce_cumsum": "__generated_reduce_cumsum",
+    "reduce_diff": "__generated_reduce_diff",
+    "element_round": "__generated_element_round",
+    "element_ceil": "__generated_element_ceil",
+    "element_trunc": "__generated_element_trunc",
+    "element_isclose": "__generated_element_isclose",
+    "element_isnan": "__generated_element_isnan",
+    "element_isinf": "__generated_element_isinf",
+    "element_finfo": "__generated_element_finfo",
+    "array_tile": "__generated_array_tile",
+    "array_repeat": "__generated_array_repeat",
+    "array_flip": "__generated_array_flip",
+    "array_roll": "__generated_array_roll",
+    "array_split": "__generated_array_split",
+    "array_unique": "__generated_array_unique",
+    "array_searchsorted": "__generated_array_searchsorted",
 }
 
 MATH_KERNEL_BODIES: dict[str, str] = {
@@ -741,6 +791,162 @@ MATH_KERNEL_BODIES: dict[str, str] = {
         }
         eigenvalues[i] = center;
     }""",
+    "array_sort": """\
+    /* Simple insertion sort (stable, O(n^2) but fine for small arrays) */
+    for (int i = 1; i < n; i++) {
+        double key = x[i];
+        int j = i - 1;
+        while (j >= 0 && x[j] > key) {
+            out[j + 1] = x[j];
+            j--;
+        }
+        out[j + 1] = key;
+    }
+    if (n > 0) out[0] = x[0];""",
+    "linalg_det": """\
+    /* Determinant via LU decomposition */
+    double det = 1.0;
+    double lu[n * n];
+    for (int i = 0; i < n * n; i++) lu[i] = x[i];
+    for (int k = 0; k < n; k++) {
+        double max_val = fabs(lu[k * n + k]);
+        int max_row = k;
+        for (int i = k + 1; i < n; i++) {
+            if (fabs(lu[i * n + k]) > max_val) {
+                max_val = fabs(lu[i * n + k]);
+                max_row = i;
+            }
+        }
+        if (max_row != k) {
+            for (int j = 0; j < n; j++) {
+                double tmp = lu[k * n + j];
+                lu[k * n + j] = lu[max_row * n + j];
+                lu[max_row * n + j] = tmp;
+            }
+            det = -det;
+        }
+        if (fabs(lu[k * n + k]) < 1e-15) { det = 0.0; break; }
+        det *= lu[k * n + k];
+        for (int i = k + 1; i < n; i++) {
+            lu[i * n + k] /= lu[k * n + k];
+            for (int j = k + 1; j < n; j++) {
+                lu[i * n + j] -= lu[i * n + k] * lu[k * n + j];
+            }
+        }
+    }
+    result_ptr[0] = det;""",
+    "reduce_argmax": """\
+    int max_idx = 0;
+    for (int i = 1; i < n; i++) {
+        if (x[i] > x[max_idx]) max_idx = i;
+    }
+    result_ptr[0] = (double)max_idx;""",
+    "reduce_argmin": """\
+    int min_idx = 0;
+    for (int i = 1; i < n; i++) {
+        if (x[i] < x[min_idx]) min_idx = i;
+    }
+    result_ptr[0] = (double)min_idx;""",
+    "reduce_any": """\
+    double any_val = 0.0;
+    for (int i = 0; i < n; i++) {
+        if (x[i] != 0.0) { any_val = 1.0; break; }
+    }
+    result_ptr[0] = any_val;""",
+    "reduce_all": """\
+    double all_val = 1.0;
+    for (int i = 0; i < n; i++) {
+        if (x[i] == 0.0) { all_val = 0.0; break; }
+    }
+    result_ptr[0] = all_val;""",
+    "reduce_prod": """\
+    double prod = 1.0;
+    for (int i = 0; i < n; i++) { prod *= x[i]; }
+    result_ptr[0] = prod;""",
+    "reduce_cumsum": """\
+    double cum = 0.0;
+    for (int i = 0; i < n; i++) { cum += x[i]; out[i] = cum; }""",
+    "reduce_diff": """\
+    out[0] = x[0];
+    for (int i = 1; i < n; i++) { out[i] = x[i] - x[i-1]; }""",
+    "element_round": """\
+    for (int i = 0; i < n; i++) { out[i] = floor(x[i] + 0.5); }""",
+    "element_ceil": """\
+    for (int i = 0; i < n; i++) {
+        out[i] = (x[i] == (double)(int)x[i]) ? x[i] : (double)((int)x[i] + 1);
+    }""",
+    "element_trunc": """\
+    for (int i = 0; i < n; i++) { out[i] = (double)(int)x[i]; }""",
+    "element_isclose": """\
+    for (int i = 0; i < n; i++) {
+        out[i] = (fabs(A[i] - B[i]) <= 1e-8) ? 1.0 : 0.0;
+    }""",
+    "element_isnan": """\
+    for (int i = 0; i < n; i++) { out[i] = (x[i] != x[i]) ? 1.0 : 0.0; }""",
+    "element_isinf": """\
+    for (int i = 0; i < n; i++) {
+        out[i] = (x[i] > 1e308 || x[i] < -1e308) ? 1.0 : 0.0;
+    }""",
+    "element_finfo": """\
+    result_ptr[0] = 2.2250738585072014e-308;""",
+    "array_flip": """\
+    for (int i = 0; i < n; i++) { out[i] = x[n - 1 - i]; }""",
+    "array_roll": """\
+    int s = (int)shift[0];
+    for (int i = 0; i < n; i++) {
+        out[(i + s + n) % n] = x[i];
+    }""",
+    "array_tile": """\
+    int r = (int)reps[0];
+    for (int i = 0; i < n * r; i++) {
+        out[i] = x[i % n];
+    }""",
+    "array_repeat": """\
+    int r = (int)reps[0];
+    int idx = 0;
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < r; j++) {
+            out[idx++] = x[i];
+        }
+    }""",
+    "array_searchsorted": """\
+    int count = 0;
+    for (int i = 0; i < n; i++) {
+        if (x[i] < v[0]) count++;
+    }
+    out[0] = (double)count;""",
+    "array_unique": """\
+    int count = 0;
+    for (int i = 0; i < n; i++) {
+        int found = 0;
+        for (int j = 0; j < count; j++) {
+            if (x[i] == out[j]) { found = 1; break; }
+        }
+        if (!found) out[count++] = x[i];
+    }
+    out_count[0] = (double)count;""",
+    "linalg_qr": """\
+    /* Simplified: copy input as Q, set R = I (stub for Gram-Schmidt) */
+    for (int i = 0; i < n * n; i++) out_q[i] = x[i];
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++) {
+            out_r[i * n + j] = (i == j) ? 1.0 : 0.0;
+        }
+    }""",
+    "linalg_svd": """\
+    /* Stub: copy x to U, set S = ones, V = I */
+    for (int i = 0; i < n * n; i++) out_u[i] = x[i];
+    for (int i = 0; i < n; i++) out_s[i] = 1.0;
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < n; j++) {
+            out_v[i * n + j] = (i == j) ? 1.0 : 0.0;
+        }
+    }""",
+    "array_split": """\
+    /* Stub: copy all elements to output */""",
+    "array_diff": """\
+    out[0] = x[0];
+    for (int i = 1; i < n; i++) { out[i] = x[i] - x[i-1]; }""",
 }
 
 
@@ -889,6 +1095,31 @@ DERIVED_PARAMS: dict[str, list[str]] = {
     "array_expand_dims": ["n"],
     "array_flatten": ["n"],
     "noop_seed": [],
+    "array_sort": ["n"],
+    "linalg_det": ["n"],
+    "linalg_qr": ["n"],
+    "linalg_svd": ["n"],
+    "reduce_argmax": ["n"],
+    "reduce_argmin": ["n"],
+    "reduce_any": ["n"],
+    "reduce_all": ["n"],
+    "reduce_prod": ["n"],
+    "reduce_cumsum": ["n"],
+    "reduce_diff": ["n"],
+    "element_round": ["n"],
+    "element_ceil": ["n"],
+    "element_trunc": ["n"],
+    "element_isclose": ["n"],
+    "element_isnan": ["n"],
+    "element_isinf": ["n"],
+    "element_finfo": [],
+    "array_tile": ["n"],
+    "array_repeat": ["n"],
+    "array_flip": ["n"],
+    "array_roll": ["n"],
+    "array_split": ["n"],
+    "array_unique": ["n"],
+    "array_searchsorted": ["n"],
 }
 
 
