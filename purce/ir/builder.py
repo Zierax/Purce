@@ -1186,9 +1186,7 @@ class MathIRBuilder:
             self._collect_calls_from_expr(arg, operations, local_funcs)
 
         if target in NUMPY_OP_MAP:
-            already_added = any(t == target for t, _ in operations)
-            if not already_added:
-                operations.append((target, call_node))
+            operations.append((target, call_node))
 
     def _collect_calls_from_expr(self, expr: ast.expr, operations: list[tuple[str, ast.Call]],
                                  local_funcs: dict[str, ast.FunctionDef]) -> None:
