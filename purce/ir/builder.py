@@ -814,6 +814,35 @@ class MathIRBuilder:
             symbol_table, existing_names, constant_assignments,
         )
 
+    def _is_guard_clause(self, if_node: ast.If) -> bool:
+        test = if_node.test
+        if isinstance(test, ast.Compare):
+            if len(test.ops) == 1 and isinstance(test.ops[0], (ast.IsNot, ast.Is)):
+                if isinstance(test.comparators[0], ast.Constant) and test.comparators[0].value is None:
+                    return True
+            if len(test.ops) == 1 and isinstance(test.ops[0], ast.Gt):
+                return True
+            if len(test.ops) == 1 and isinstance(test.ops[0], ast.Lt):
+                return True
+            if len(test.ops) == 1 and isinstance(test.ops[0], ast.NotEq):
+                return True
+        if isinstance(test, ast.Name):
+            return True
+        return False
+
+    def _if_else_same_variable(self, if_node: ast.If) -> bool:
+        if_names = set()
+        for stmt in if_node.body:
+            if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
+                if isinstance(stmt.targets[0], ast.Name):
+                    if_names.add(stmt.targets[0].id)
+        else_names = set()
+        for stmt in if_node.orelse:
+            if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
+                if isinstance(stmt.targets[0], ast.Name):
+                    else_names.add(stmt.targets[0].id)
+        return bool(if_names & else_names)
+
     def _decompose_full_body(
         self,
         func: ast.FunctionDef,
@@ -852,18 +881,157 @@ class MathIRBuilder:
         flat_stmts: list[ast.stmt] = []
         for stmt in func.body:
             if isinstance(stmt, ast.If):
+                is_guard = self._is_guard_clause(stmt)
                 if not stmt.orelse:
-                    for body_stmt in stmt.body:
-                        flat_stmts.append(body_stmt)
+                    if is_guard:
+                        for body_stmt in stmt.body:
+                            flat_stmts.append(body_stmt)
+                    else:
+                        for body_stmt in stmt.body:
+                            flat_stmts.append(body_stmt)
                 else:
-                    for body_stmt in stmt.body:
-                        flat_stmts.append(body_stmt)
-                    for else_stmt in stmt.orelse:
-                        flat_stmts.append(else_stmt)
+                    same_var = self._if_else_same_variable(stmt)
+                    if same_var:
+                        flat_stmts.append(stmt)
+                    else:
+                        for body_stmt in stmt.body:
+                            flat_stmts.append(body_stmt)
+                        for else_stmt in stmt.orelse:
+                            flat_stmts.append(else_stmt)
             elif isinstance(stmt, (ast.Assign, ast.Return, ast.Expr)):
                 flat_stmts.append(stmt)
 
         for stmt in flat_stmts:
+            if isinstance(stmt, ast.If) and stmt.orelse:
+                if_names = {}
+                for s in stmt.body:
+                    if isinstance(s, ast.Assign) and len(s.targets) == 1:
+                        if isinstance(s.targets[0], ast.Name):
+                            if_names[s.targets[0].id] = s.value
+                else_names = {}
+                for s in stmt.orelse:
+                    if isinstance(s, ast.Assign) and len(s.targets) == 1:
+                        if isinstance(s.targets[0], ast.Name):
+                            else_names[s.targets[0].id] = s.value
+                for var_name in if_names:
+                    if var_name in else_names:
+                        if_value = if_names[var_name]
+                        else_value = else_names[var_name]
+                        if isinstance(if_value, ast.Call) and isinstance(else_value, ast.Call):
+                            if_target = self._resolve_call_target(if_value)
+                            else_target = self._resolve_call_target(else_value)
+                            if if_target.startswith("np."):
+                                if_target = "numpy." + if_target[3:]
+                            if else_target.startswith("np."):
+                                else_target = "numpy." + else_target[3:]
+                            if if_target in NUMPY_OP_MAP and else_target in NUMPY_OP_MAP:
+                                node_idx_ref = [node_idx]
+                                if_inputs = []
+                                for arg in if_value.args:
+                                    r = self._decompose_expr(
+                                        arg, func_inputs, scalar_constants, intermediates,
+                                        symbol_table, existing_names, constant_assignments,
+                                        module_name, func.name, origin_file, all_dep_ids,
+                                        node_idx_ref,
+                                    )
+                                    if isinstance(r, list):
+                                        if_inputs.extend(r)
+                                    else:
+                                        if_inputs.append(r)
+                                else_inputs = []
+                                for arg in else_value.args:
+                                    r = self._decompose_expr(
+                                        arg, func_inputs, scalar_constants, intermediates,
+                                        symbol_table, existing_names, constant_assignments,
+                                        module_name, func.name, origin_file, all_dep_ids,
+                                        node_idx_ref,
+                                    )
+                                    if isinstance(r, list):
+                                        else_inputs.extend(r)
+                                    else:
+                                        else_inputs.append(r)
+                                inter_if = f"_inter_if_{var_name}_{node_idx}"
+                                node_idx += 1
+                                self._node_counter += 1
+                                if_id = _make_node_id(module_name, f"{func.name}_if_{var_name}")
+                                if_sig = " -> ".join([f"{dt.name.lower()} {n}" for n, dt, _ in if_inputs]) + " -> array"
+                                self.graph.add_node(MathIRNode(
+                                    node_id=if_id,
+                                    origin_symbol=f"{module_name}.{func.name}",
+                                    origin_file=origin_file,
+                                    origin_line=stmt.lineno,
+                                    origin_commit=self.origin_commit,
+                                    origin_signature=if_sig,
+                                    math_intent=f"If-branch for '{var_name}'",
+                                    inputs=if_inputs,
+                                    outputs=[(inter_if, Dtype.FLOAT64, "array")],
+                                    effects=[Effect.PURE],
+                                    algorithm=NUMPY_OP_MAP[if_target],
+                                    reductions=[ReductionEntry(rule="if_branch", description=f"If-branch {if_target}", original=if_target)],
+                                    nested_deps=list(all_dep_ids),
+                                    stack_usage=256, heap_usage=None, reentrant=True,
+                                    dep_kind=DepKind.MATH_KERNEL,
+                                    scalar_constants=dict(scalar_constants),
+                                ))
+                                self.graph.entry_points.append(if_id)
+                                all_dep_ids.append(if_id)
+                                inter_else = f"_inter_else_{var_name}_{node_idx}"
+                                node_idx += 1
+                                self._node_counter += 1
+                                else_id = _make_node_id(module_name, f"{func.name}_else_{var_name}")
+                                else_sig = " -> ".join([f"{dt.name.lower()} {n}" for n, dt, _ in else_inputs]) + " -> array"
+                                self.graph.add_node(MathIRNode(
+                                    node_id=else_id,
+                                    origin_symbol=f"{module_name}.{func.name}",
+                                    origin_file=origin_file,
+                                    origin_line=stmt.lineno,
+                                    origin_commit=self.origin_commit,
+                                    origin_signature=else_sig,
+                                    math_intent=f"Else-branch for '{var_name}'",
+                                    inputs=else_inputs,
+                                    outputs=[(inter_else, Dtype.FLOAT64, "array")],
+                                    effects=[Effect.PURE],
+                                    algorithm=NUMPY_OP_MAP[else_target],
+                                    reductions=[ReductionEntry(rule="else_branch", description=f"Else-branch {else_target}", original=else_target)],
+                                    nested_deps=list(all_dep_ids),
+                                    stack_usage=256, heap_usage=None, reentrant=True,
+                                    dep_kind=DepKind.MATH_KERNEL,
+                                    scalar_constants=dict(scalar_constants),
+                                ))
+                                self.graph.entry_points.append(else_id)
+                                all_dep_ids.append(else_id)
+                                cond_name = f"_cond_{var_name}_{node_idx}"
+                                node_idx += 1
+                                self._node_counter += 1
+                                where_id = _make_node_id(module_name, f"{func.name}_where_{var_name}")
+                                where_sig = f"double {cond_name}, double {inter_if}, double {inter_else} -> array"
+                                self.graph.add_node(MathIRNode(
+                                    node_id=where_id,
+                                    origin_symbol=f"{module_name}.{func.name}",
+                                    origin_file=origin_file,
+                                    origin_line=stmt.lineno,
+                                    origin_commit=self.origin_commit,
+                                    origin_signature=where_sig,
+                                    math_intent=f"Conditional select for '{var_name}'",
+                                    inputs=[
+                                        (cond_name, Dtype.FLOAT64, "scalar"),
+                                        (inter_if, Dtype.FLOAT64, "array"),
+                                        (inter_else, Dtype.FLOAT64, "array"),
+                                    ],
+                                    outputs=[(f"_inter_{var_name}", Dtype.FLOAT64, "array")],
+                                    effects=[Effect.PURE],
+                                    algorithm="element_where",
+                                    reductions=[ReductionEntry(rule="conditional_select", description=f"element_where for {var_name}", original="numpy.where")],
+                                    nested_deps=list(all_dep_ids),
+                                    stack_usage=256, heap_usage=None, reentrant=True,
+                                    dep_kind=DepKind.MATH_KERNEL,
+                                    scalar_constants=dict(scalar_constants),
+                                ))
+                                self.graph.entry_points.append(where_id)
+                                all_dep_ids.append(where_id)
+                                symbol_table[var_name] = (f"_inter_{var_name}", Dtype.FLOAT64)
+                continue
+
             if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
                 target_name = stmt.targets[0].id if isinstance(stmt.targets[0], ast.Name) else None
                 if target_name is None:
