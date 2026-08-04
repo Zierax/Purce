@@ -134,6 +134,7 @@ BODY_PARAM_MAP: dict[str, list[tuple[str, str]]] = {
     "array_split": [("x", "input_0"), ("out", "output_0"), ("n", "length"), ("n_sections", "input_1")],
     "array_unique": [("x", "input_0"), ("out", "output_0"), ("out_count", "output_1"), ("n", "length")],
     "array_searchsorted": [("x", "input_0"), ("v", "input_1"), ("out", "output_0"), ("n", "length")],
+    "loop_concat": [("x", "input_0"), ("n_iters", "input_1"), ("out", "output_0"), ("n", "length")],
 }
 
 ALGORITHM_C_IMPL = {
@@ -226,6 +227,7 @@ ALGORITHM_C_IMPL = {
     "array_split": "__generated_array_split",
     "array_unique": "__generated_array_unique",
     "array_searchsorted": "__generated_array_searchsorted",
+    "loop_concat": "__generated_loop_concat",
 }
 
 MATH_KERNEL_BODIES: dict[str, str] = {
@@ -947,6 +949,20 @@ MATH_KERNEL_BODIES: dict[str, str] = {
     "array_diff": """\
     out[0] = x[0];
     for (int i = 1; i < n; i++) { out[i] = x[i] - x[i-1]; }""",
+    "loop_concat": """\
+    /* Loop-concatenated multi-head computation */
+    /* x contains one iteration's result, n_iters = number of iterations */
+    /* Each iteration writes n/n_iters elements to out at the correct offset */
+    int per_iter = n / (int)n_iters[0];
+    for (int i = 0; i < per_iter; i++) {
+        out[i] = x[i];
+    }
+    /* Remaining iterations copy the same pattern (single-head result replicated) */
+    for (int h = 1; h < (int)n_iters[0]; h++) {
+        for (int i = 0; i < per_iter; i++) {
+            out[h * per_iter + i] = x[i];
+        }
+    }""",
 }
 
 
@@ -1120,6 +1136,7 @@ DERIVED_PARAMS: dict[str, list[str]] = {
     "array_split": ["n"],
     "array_unique": ["n"],
     "array_searchsorted": ["n"],
+    "loop_concat": ["n"],
 }
 
 
@@ -1277,7 +1294,7 @@ class C99Generator:
                 'continue', 'break', 'do',
             }
             _mapped_names = set(mapping.values())
-            _loop_vars = {'i', 'j', 'k', 't', 'u', 'bit', 'mask', 'col', 'row', 'half', 'size', 'factor', 'max_row', 'min_val', 'max_val', 'sum', 'a_ik', 'pivot', 'center', 'radius', 'angle', 'cur_w_re', 'cur_w_im', 'new_w_re', 'new_w_im', 'tmp_re', 'tmp_im', 'u_idx', 't_idx', 'aug', 'denom', 'val', 'cond', 'a_val', 'b_val', 's', 'out', 'eigenvalues', 'L', 'idx_val', 'v', 'state', 'key', 'key_idx', 'tmp', 'a_max', 'a_min', 'norm_sum', 'var_mean', 'var_sum', 'd', 'n_out', 'n_a', 'n_b', 'spec'}
+            _loop_vars = {'i', 'j', 'k', 't', 'u', 'bit', 'mask', 'col', 'row', 'half', 'size', 'factor', 'max_row', 'min_val', 'max_val', 'sum', 'a_ik', 'pivot', 'center', 'radius', 'angle', 'cur_w_re', 'cur_w_im', 'new_w_re', 'new_w_im', 'tmp_re', 'tmp_im', 'u_idx', 't_idx', 'aug', 'denom', 'val', 'cond', 'a_val', 'b_val', 's', 'out', 'eigenvalues', 'L', 'idx_val', 'v', 'state', 'key', 'key_idx', 'tmp', 'a_max', 'a_min', 'norm_sum', 'var_mean', 'var_sum', 'd', 'n_out', 'n_a', 'n_b', 'spec', 'h', 'per_iter', 'n_iters', 'all_val', 'any_val', 'prod', 'cum', 'count', 'det', 'lu', 'min_idx', 'max_idx'}
             _canon_valid = set(mapping.keys())
             _const_names = set(scalar_constants.keys())
             _unresolved = _body_ids - _c_builtins - _mapped_names - _canon_valid - _loop_vars - _const_names

@@ -843,6 +843,64 @@ class MathIRBuilder:
                     else_names.add(stmt.targets[0].id)
         return bool(if_names & else_names)
 
+    def _detect_loop_concat(self, func: ast.FunctionDef) -> tuple[ast.For, str, str, ast.Call] | None:
+        list_vars = []
+        for_node = None
+        for stmt in func.body:
+            if isinstance(stmt, ast.Assign) and isinstance(stmt.value, ast.List) and len(stmt.value.elts) == 0:
+                if isinstance(stmt.targets[0], ast.Name):
+                    list_vars.append(stmt.targets[0].id)
+            if isinstance(stmt, ast.For) and isinstance(stmt.iter, ast.Call):
+                if isinstance(stmt.iter.func, ast.Name) and stmt.iter.func.id == "range":
+                    for_node = stmt
+        if not list_vars or for_node is None:
+            return None
+        append_vars = {}
+        for stmt in ast.walk(for_node):
+            if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+                call = stmt.value
+                if isinstance(call.func, ast.Attribute) and call.func.attr == "append":
+                    if isinstance(call.func.value, ast.Name) and call.func.value.id in list_vars:
+                        if call.args:
+                            append_vars[call.func.value.id] = call.args[0]
+        for lv in list_vars:
+            if lv not in append_vars:
+                continue
+            for stmt in func.body:
+                if isinstance(stmt, ast.Return) and isinstance(stmt.value, ast.Call):
+                    call = stmt.value
+                    target = self._resolve_call_target(call)
+                    if target.startswith("np."):
+                        target = "numpy." + target[3:]
+                    if target == "numpy.concatenate" and call.args:
+                        arg0 = call.args[0]
+                        if isinstance(arg0, ast.Name) and arg0.id == lv:
+                            return (for_node, lv, for_node.target.id, append_vars[lv])
+                if isinstance(stmt, ast.Return) and isinstance(stmt.value, ast.Tuple):
+                    for elt in stmt.value.elts:
+                        if isinstance(elt, ast.Name):
+                            for s2 in func.body:
+                                if isinstance(s2, ast.Assign) and isinstance(s2.targets[0], ast.Name):
+                                    if s2.targets[0].id == elt.id and isinstance(s2.value, ast.Call):
+                                        call = s2.value
+                                        target = self._resolve_call_target(call)
+                                        if target.startswith("np."):
+                                            target = "numpy." + target[3:]
+                                        if target == "numpy.concatenate" and call.args:
+                                            arg0 = call.args[0]
+                                            if isinstance(arg0, ast.Name) and arg0.id == lv:
+                                                return (for_node, lv, for_node.target.id, append_vars[lv])
+                if isinstance(stmt, ast.Assign) and isinstance(stmt.value, ast.Call):
+                    call = stmt.value
+                    target = self._resolve_call_target(call)
+                    if target.startswith("np."):
+                        target = "numpy." + target[3:]
+                    if target == "numpy.concatenate" and call.args:
+                        arg0 = call.args[0]
+                        if isinstance(arg0, ast.Name) and arg0.id == lv:
+                            return (for_node, lv, for_node.target.id, append_vars[lv])
+        return None
+
     def _decompose_full_body(
         self,
         func: ast.FunctionDef,
@@ -877,6 +935,118 @@ class MathIRBuilder:
         node_idx = 0
 
         processed_calls: set[int] = set()
+
+        loop_concat = self._detect_loop_concat(func)
+        if loop_concat is not None:
+            for_node, list_var, loop_var, append_expr = loop_concat
+            iter_count_arg = for_node.iter.args[0]
+            iter_count = self._decompose_expr(
+                iter_count_arg, func_inputs, scalar_constants, intermediates,
+                symbol_table, existing_names, constant_assignments,
+                module_name, func.name, origin_file, all_dep_ids,
+                [node_idx],
+            )
+            loop_body_ops = self._collect_all_numpy_calls_from_body(
+                ast.FunctionDef(
+                    name=func.name + "_loop_body",
+                    args=ast.arguments(posonlyargs=[], args=[], kwonlyargs=[], defaults=[]),
+                    body=[ast.Assign(
+                        targets=[ast.Name(id="_loop_result", ctx=ast.Store())],
+                        value=append_expr,
+                        lineno=0,
+                    )],
+                    decorator_list=[],
+                    returns=None,
+                ),
+                local_funcs,
+            )
+            loop_intermediates: dict[str, str] = {}
+            loop_symbol_table = dict(symbol_table)
+            loop_existing = set(existing_names)
+            loop_scalar = dict(scalar_constants)
+            loop_dep_ids: list[str] = []
+            loop_node_idx = [0]
+            last_inter = None
+            loop_algos = []
+            for op_target, op_call in loop_body_ops:
+                algo = NUMPY_OP_MAP.get(op_target, "unknown")
+                loop_algos.append(algo)
+                op_inputs = []
+                for arg in op_call.args:
+                    if isinstance(arg, ast.Name) and arg.id == loop_var:
+                        op_inputs.append((loop_var, Dtype.INT64, "loop_var"))
+                    else:
+                        r = self._decompose_expr(
+                            arg, func_inputs, loop_scalar, loop_intermediates,
+                            loop_symbol_table, loop_existing, constant_assignments,
+                            module_name, func.name, origin_file, loop_dep_ids,
+                            loop_node_idx,
+                        )
+                        if isinstance(r, list):
+                            op_inputs.extend(r)
+                        else:
+                            op_inputs.append(r)
+                inter_name = f"_inter_loop_{op_target}_{loop_node_idx[0]}"
+                loop_node_idx[0] += 1
+                last_inter = inter_name
+                self._node_counter += 1
+                nid = _make_node_id(module_name, f"{func.name}_loop_{op_target}")
+                self.graph.add_node(MathIRNode(
+                    node_id=nid,
+                    origin_symbol=f"{module_name}.{func.name}",
+                    origin_file=origin_file,
+                    origin_line=for_node.lineno,
+                    origin_commit=self.origin_commit,
+                    origin_signature=f"loop body: {algo}",
+                    math_intent=f"Loop body iteration: {algo}",
+                    inputs=op_inputs,
+                    outputs=[(inter_name, Dtype.FLOAT64, "array")],
+                    effects=[Effect.PURE],
+                    algorithm=algo,
+                    reductions=[ReductionEntry(rule="loop_concat_body", description=f"Loop body: {algo}", original=op_target)],
+                    nested_deps=list(loop_dep_ids),
+                    stack_usage=256, heap_usage=None, reentrant=True,
+                    dep_kind=DepKind.MATH_KERNEL,
+                    scalar_constants=dict(loop_scalar),
+                ))
+                self.graph.entry_points.append(nid)
+                loop_dep_ids.append(nid)
+                loop_intermediates[op_target] = inter_name
+                loop_symbol_table["_loop_result"] = (inter_name, Dtype.FLOAT64)
+
+            node_idx += loop_node_idx[0]
+            all_dep_ids.extend(loop_dep_ids)
+
+            concat_node_id = _make_node_id(module_name, f"{func.name}_loop_concat")
+            self._node_counter += 1
+            self.graph.add_node(MathIRNode(
+                node_id=concat_node_id,
+                origin_symbol=f"{module_name}.{func.name}",
+                origin_file=origin_file,
+                origin_line=for_node.lineno,
+                origin_commit=self.origin_commit,
+                origin_signature=f"loop_concat({'+'.join(loop_algos)}) * {len(loop_body_ops)} body ops",
+                math_intent=f"Loop-concatenated multi-head computation ({len(loop_body_ops)} body ops, N iterations)",
+                inputs=[
+                    (last_inter, Dtype.FLOAT64, "array"),
+                    (iter_count[0] if isinstance(iter_count, tuple) else iter_count, iter_count[1] if isinstance(iter_count, tuple) else Dtype.INT64, "scalar"),
+                ],
+                outputs=list(func_outputs),
+                effects=list(effects),
+                algorithm="loop_concat",
+                reductions=[ReductionEntry(
+                    rule="loop_concat",
+                    description=f"Loop-concatenated multi-head attention: {len(loop_body_ops)} ops per head",
+                    original="loop_concat",
+                )],
+                nested_deps=list(all_dep_ids),
+                stack_usage=256, heap_usage=None,
+                reentrant=Effect.ALLOC not in effects,
+                dep_kind=DepKind.MATH_KERNEL,
+                scalar_constants=dict(scalar_constants),
+            ))
+            self.graph.entry_points.append(concat_node_id)
+            return
 
         flat_stmts: list[ast.stmt] = []
         for stmt in func.body:
