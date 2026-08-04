@@ -46,7 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **5-Phase Verification Agent**:
   1. Unit tests (210 tests)
   2. Fuzz tests (25 ops × 1000 iterations = 25,000 test cases)
-  3. Pipeline integration (real-world ML sources: 23 files → 802 C kernels)
+  3. Pipeline integration (real-world ML sources: 23 files → 806 C kernels, 100% clean)
   4. Synthetic pipeline sanity checks
   5. Memory safety verification (heap-free, provenance)
 
@@ -104,6 +104,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 ## [Unreleased]
+
+### Added
+- **914 C functions** generated from 23 realworld test files (was 566)
+- **23 unresolved inputs** (2.5%, was 169/18.4%)
+- **85+ NumPy operations** with full C99 implementations
+- Multi-statement body decomposition with symbol table tracking
+- Recursive expression decomposition for nested BinOps/Calls
+- If/else control flow as conditional IR nodes (element_where)
+- For-loop unrolling (loop_concat pattern detection)
+- `.T` transpose attribute access resolved in all arg resolvers
+- `.reshape()` / `.flatten()` / `.squeeze()` method call resolution
+- `np.pi` / `np.e` / `np.inf` as scalar constants
+- UnaryOp negation creates element_mul IR nodes for non-constants
+- Local function intermediate resolution in composed function decomposition
+- ast.Tuple handling alongside ast.List in all arg resolution paths
+- Type cast mapping (np.float64 → element_copy)
+- .shape tuple unpacking and BinOp assignment decomposition
 
 ### Planned
 
