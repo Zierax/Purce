@@ -72,7 +72,7 @@ For each node in topological order:
 - FFT power-of-two constraints
 
 **Differential Fuzzing:**
-- 25 operations × N iterations
+- 55+ operations × N iterations
 - Python reference implementation as oracle
 - Random input generation
 - Output comparison within tolerance (rtol=1e-5, atol=1e-8)
@@ -191,7 +191,7 @@ python -m tests.verification_agent
 
 Runs 5-phase validation:
 1. Unit tests (pytest)
-2. Fuzz tests (25 operations, C99 vs Python)
+2. Fuzz tests (55+ operations, C99 vs Python)
 3. Pipeline integration (real-world sources)
 4. Synthetic pipeline test
 5. Memory safety verification (heap-free, provenance)
@@ -265,7 +265,7 @@ python -m benchmarks.c_code_quality
 
 ## Limitations
 
-- **Not all NumPy operations are supported**: Only the 25 operations listed above
+- **Not all NumPy operations are supported**: Only the 55+ operations listed above
 - **No dynamic shapes**: All dimensions must be known at compile time (passed as parameters)
 - **No in-place mutation**: Generated functions take separate input/output arrays
 - **Stack-allocated linalg**: `linalg_solve` and `linalg_inv` use fixed-size stack arrays (max 64×64)

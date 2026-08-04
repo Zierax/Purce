@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `MathIRGraph` with iterative topological sort and cycle detection
   - Dependency classification (MATH_KERNEL, SYSTEM_PAL, DATA_ASSET, META_UTIL)
 - **Python Parser**: Extracts math kernels from Python/NumPy source
-  - Supports 25+ NumPy operations
+  - Supports 55+ NumPy operations
   - Type hint extraction (float32, float64, int32, int64)
   - Structured diagnostics for unsupported constructs
 - **Semantic Slicer**: Call graph analysis and dead code elimination
@@ -28,24 +28,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Provenance metadata in every generated file
   - Auto-generated CMakeLists.txt
 
-#### Supported Operations (25)
-- **Element-wise**: add, sub, mul, div, neg, abs, sqrt, exp, log, sin, cos, tan, power
-- **Reductions**: sum, mean, max, min
-- **Matrix**: matmul, transpose
-- **Linear algebra**: solve, inverse, determinant, cholesky, eig
+#### Supported Operations (55+)
+- **Element-wise**: add, sub, mul, div, neg, abs, sqrt, exp, log, sin, cos, tan, tanh, power, sign, floor, clip, where, greater, less, log10, logaddexp, conj, angle, real, imag, copy
+- **Reductions**: sum, mean, max, min, var
+- **Matrix**: matmul, transpose, outer, diag, tril, triu
+- **Linear algebra**: solve, inverse, cholesky, eig, norm
 - **Signal processing**: fft, ifft
-- **Sorting**: sort
-- **Allocation**: zeros, ones, eye
+- **Allocation**: zeros, ones, eye, arange, linspace, full, full_like, ones_like, zeros_like, random
+- **Array ops**: concatenate, take, argsort, permutation, reshape, squeeze, expand_dims, flatten
 
 #### Verification
 - **Z3 SMT Verifier**: Symbolic verification for all operations
   - Dimension bounds, division-by-zero, overflow, non-singular, FFT power-of-two
-- **Differential Fuzzer**: 25 operations, 200 iterations each
-  - Random input generation via Hypothesis
+- **Differential Fuzzer**: 25 operations, 1000 iterations each
+  - Random input generation
   - Python reference comparison with configurable tolerance
 - **5-Phase Verification Agent**:
-  1. Unit tests (188 tests)
-  2. Fuzz tests (25 ops × 200 iterations = 5,000 test cases)
+  1. Unit tests (210 tests)
+  2. Fuzz tests (25 ops × 1000 iterations = 25,000 test cases)
   3. Pipeline integration (real-world ML sources)
   4. Synthetic pipeline sanity checks
   5. Memory safety verification (heap-free, provenance)
@@ -57,8 +57,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Target profiles: `generic-c99`, `bare-arm-q31`, `bare-arm-q15`
 
 #### Testing
-- 188 tests across 8 test modules (165 passing, 42 skipped when gcc unavailable)
-- Real-world test projects: 15 ML/scientific source files
+- 210 tests across 10 test modules (168 passing, 42 skipped when gcc unavailable)
+- Real-world test projects: 23 ML/scientific source files
 - C compilation verification tests (requires gcc)
 - Full pipeline integration tests
 
@@ -107,11 +107,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Planned
 
 #### v0.2.0 — Extended Operations
-- `element_pow` (np.power) — most common unsupported op
 - `np.dot` for >2D arrays
 - `np.einsum` (generalized tensor contraction)
-- `np.clip` / `np.where` (conditional element-wise)
 - `np.sort` with multiple algorithms (quicksort, mergesort, heapsort)
+- `np.linalg.det` (determinant)
 
 #### v0.3.0 — Code Generation Improvements
 - SIMD-optimized kernels (SSE, AVX, NEON)

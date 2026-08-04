@@ -300,7 +300,7 @@ purce/
 │       ├── z3_verifier.py       # SMT bounds checking
 │       ├── fuzzer.py            # Differential fuzzing
 │       └── ctypes_bridge.py     # C99 compilation + ctypes loading
-├── tests/                       # 188 tests (165 passing, 42 skipped)
+├── tests/                       # 210 tests (168 passing, 42 skipped)
 │   ├── test_ir.py               # Math-IR node and graph tests
 │   ├── test_parser.py           # Python parser tests
 │   ├── test_slicer.py           # Semantic slicer tests
@@ -312,7 +312,7 @@ purce/
 │   ├── test_cli.py              # CLI integration tests
 │   ├── verification_agent.py    # 5-phase verification agent
 │   ├── fixtures/                # Sample Python files
-│   └── realworld/               # 15 ML/scientific test sources
+│   └── realworld/               # 23 ML/scientific test sources
 ├── benchmarks/                  # 7 benchmark scripts
 ├── docs/                        # Documentation
 ├── pyproject.toml

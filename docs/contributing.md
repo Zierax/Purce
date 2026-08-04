@@ -45,7 +45,7 @@ make format
 ### Running Tests
 
 ```bash
-# Run all 188 tests
+# Run all 210 tests
 pytest tests/ -v
 
 # Run specific module
@@ -73,7 +73,7 @@ tests/
 ├── test_c_compilation.py   # 15 tests - C compilation verification (requires gcc)
 ├── verification_agent.py   # 5-phase verification agent
 ├── fixtures/               # Sample Python files for testing
-└── realworld/              # 15 ML/scientific test source files
+└── realworld/              # 23 ML/scientific test source files
 ```
 
 ### Writing Tests
@@ -225,7 +225,7 @@ make html
 
 ## Pull Request Checklist
 
-- [ ] All tests pass (188 collected, 165 passing, gcc-dependent tests skip gracefully)
+- [ ] All tests pass (210 collected, 168 passing, gcc-dependent tests skip gracefully)
 - [ ] No lint errors (`make lint`)
 - [ ] New features have tests
 - [ ] Documentation updated
