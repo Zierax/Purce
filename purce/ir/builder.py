@@ -696,7 +696,7 @@ class MathIRBuilder:
         target = ""
         if isinstance(call_node.func, ast.Attribute):
             target = _get_qualified_name(call_node.func)
-            if call_node.func.attr in ("transpose", "T") and isinstance(call_node.func.value, ast.Name):
+            if call_node.func.attr in ("transpose", "T"):
                 target = "numpy.transpose"
             elif call_node.func.attr == "reshape" and isinstance(call_node.func.value, ast.Name):
                 target = "numpy.reshape"
