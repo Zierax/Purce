@@ -430,6 +430,31 @@ class MathIRBuilder:
                 existing_names.add(const_name)
             return (const_name, Dtype.FLOAT64, "scalar")
 
+        if isinstance(arg_node, ast.Attribute) and arg_node.attr == "T":
+            if isinstance(arg_node.value, ast.Name) and arg_node.value.id in existing_names:
+                return (arg_node.value.id, Dtype.FLOAT64, None)
+            if isinstance(arg_node.value, ast.Name) and arg_node.value.id in intermediates:
+                return (intermediates[arg_node.value.id], Dtype.FLOAT64, None)
+
+        if isinstance(arg_node, ast.Attribute):
+            full_name = ""
+            if isinstance(arg_node.value, ast.Name):
+                full_name = f"{arg_node.value.id}.{arg_node.attr}"
+            if full_name in ("np.pi", "numpy.pi"):
+                const_name = f"_const_{len(scalar_constants)}"
+                if const_name not in existing_names:
+                    import math
+                    scalar_constants[const_name] = math.pi
+                    existing_names.add(const_name)
+                return (const_name, Dtype.FLOAT64, "scalar")
+            if full_name in ("np.e", "numpy.e"):
+                const_name = f"_const_{len(scalar_constants)}"
+                if const_name not in existing_names:
+                    import math
+                    scalar_constants[const_name] = math.e
+                    existing_names.add(const_name)
+                return (const_name, Dtype.FLOAT64, "scalar")
+
         if isinstance(arg_node, ast.Call):
             target = ""
             if isinstance(arg_node.func, ast.Attribute):
@@ -953,6 +978,39 @@ class MathIRBuilder:
                     scalar_constants[const_name] = 0.0
                     existing_names.add(const_name)
                 return (const_name, Dtype.INT64, "scalar")
+
+        if isinstance(expr, ast.Attribute) and expr.attr == "T":
+            if isinstance(expr.value, ast.Name) and expr.value.id in symbol_table:
+                name, dt = symbol_table[expr.value.id]
+                return (name, dt, None)
+            if isinstance(expr.value, ast.Name) and expr.value.id in intermediates:
+                inter_name = intermediates[expr.value.id]
+                return (inter_name, Dtype.FLOAT64, None)
+
+        if isinstance(expr, ast.Attribute):
+            full_name = ""
+            if isinstance(expr.value, ast.Name):
+                full_name = f"{expr.value.id}.{expr.attr}"
+            if full_name in ("np.pi", "numpy.pi"):
+                const_name = f"_const_{len(scalar_constants)}"
+                if const_name not in existing_names:
+                    import math
+                    scalar_constants[const_name] = math.pi
+                    existing_names.add(const_name)
+                return (const_name, Dtype.FLOAT64, "scalar")
+            if full_name in ("np.e", "numpy.e"):
+                const_name = f"_const_{len(scalar_constants)}"
+                if const_name not in existing_names:
+                    import math
+                    scalar_constants[const_name] = math.e
+                    existing_names.add(const_name)
+                return (const_name, Dtype.FLOAT64, "scalar")
+            if full_name in ("np.inf", "numpy.inf"):
+                const_name = f"_const_{len(scalar_constants)}"
+                if const_name not in existing_names:
+                    scalar_constants[const_name] = float('inf')
+                    existing_names.add(const_name)
+                return (const_name, Dtype.FLOAT64, "scalar")
 
         if isinstance(expr, ast.Subscript):
             if isinstance(expr.slice, ast.Constant) and isinstance(expr.slice.value, int):
@@ -1713,6 +1771,33 @@ class MathIRBuilder:
                     scalar_constants[const_name] = const_val
                     existing_names.add(const_name)
                 return (const_name, Dtype.INT64, "scalar")
+
+        if isinstance(arg_node, ast.Attribute) and arg_node.attr == "T":
+            if isinstance(arg_node.value, ast.Name) and arg_node.value.id in symbol_table:
+                name, dt = symbol_table[arg_node.value.id]
+                return (name, dt, None)
+            if isinstance(arg_node.value, ast.Name) and arg_node.value.id in intermediates:
+                inter_name = intermediates[arg_node.value.id]
+                return (inter_name, Dtype.FLOAT64, None)
+
+        if isinstance(arg_node, ast.Attribute):
+            full_name = ""
+            if isinstance(arg_node.value, ast.Name):
+                full_name = f"{arg_node.value.id}.{arg_node.attr}"
+            if full_name in ("np.pi", "numpy.pi"):
+                const_name = f"_const_{len(scalar_constants)}"
+                if const_name not in existing_names:
+                    import math
+                    scalar_constants[const_name] = math.pi
+                    existing_names.add(const_name)
+                return (const_name, Dtype.FLOAT64, "scalar")
+            if full_name in ("np.e", "numpy.e"):
+                const_name = f"_const_{len(scalar_constants)}"
+                if const_name not in existing_names:
+                    import math
+                    scalar_constants[const_name] = math.e
+                    existing_names.add(const_name)
+                return (const_name, Dtype.FLOAT64, "scalar")
 
         if isinstance(arg_node, ast.Subscript):
             if isinstance(arg_node.value, ast.Attribute) and arg_node.value.attr == "shape":
