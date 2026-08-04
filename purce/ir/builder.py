@@ -66,6 +66,7 @@ NUMPY_OP_MAP: dict[str, str] = {
     "numpy.outer": "outer_product",
     "numpy.diag": "matrix_diag",
     "numpy.copy": "element_copy",
+    "numpy.astype": "element_copy",
     "numpy.arange": "alloc_arange",
     "numpy.linspace": "alloc_linspace",
     "numpy.full": "alloc_full",
@@ -482,6 +483,27 @@ class MathIRBuilder:
         if len(operations) <= 1:
             return
 
+        local_func_call_ids: dict[int, str] = {}
+        if local_funcs:
+            for arg in outer_call.args:
+                if isinstance(arg, ast.Call):
+                    target = ""
+                    if isinstance(arg.func, ast.Name):
+                        target = arg.func.id
+                    elif isinstance(arg.func, ast.Attribute):
+                        target = _get_qualified_name(arg.func)
+                    if target.startswith("np."):
+                        target = "numpy." + target[3:]
+                    if target in local_funcs:
+                        local_func_call_ids[id(arg)] = target
+                    for sub in ast.walk(arg):
+                        if isinstance(sub, ast.Call):
+                            sub_target = ""
+                            if isinstance(sub.func, ast.Name):
+                                sub_target = sub.func.id
+                            if sub_target in local_funcs:
+                                local_func_call_ids[id(sub)] = sub_target
+
         intermediates: dict[str, str] = {}
         all_reductions: list[ReductionEntry] = []
         all_dep_ids: list[str] = []
@@ -532,6 +554,21 @@ class MathIRBuilder:
                         resolved = self._resolve_arg_to_name(
                             arg, func_inputs, scalar_constants, intermediates, existing_names,
                         )
+                    elif isinstance(arg, ast.Call) and id(arg) in local_func_call_ids:
+                        local_func_name = local_func_call_ids[id(arg)]
+                        last_inter = None
+                        for op_idx in range(len(operations) - 1, -1, -1):
+                            op_target, op_call = operations[op_idx]
+                            inter_key = f"{op_target}_{op_idx}"
+                            if inter_key in intermediates:
+                                last_inter = intermediates[inter_key]
+                                break
+                        if last_inter:
+                            resolved = (last_inter, Dtype.FLOAT64, None)
+                        else:
+                            resolved = self._resolve_arg_to_name(
+                                arg, func_inputs, scalar_constants, intermediates, existing_names,
+                            )
                     else:
                         resolved = self._decompose_expr(
                             arg, func_inputs, scalar_constants, intermediates,
@@ -636,6 +673,16 @@ class MathIRBuilder:
             target = _get_qualified_name(call_node.func)
             if call_node.func.attr in ("transpose", "T") and isinstance(call_node.func.value, ast.Name):
                 target = "numpy.transpose"
+            elif call_node.func.attr == "reshape" and isinstance(call_node.func.value, ast.Name):
+                target = "numpy.reshape"
+            elif call_node.func.attr == "flatten" and isinstance(call_node.func.value, ast.Name):
+                target = "numpy.flatten"
+            elif call_node.func.attr == "squeeze" and isinstance(call_node.func.value, ast.Name):
+                target = "numpy.squeeze"
+            elif call_node.func.attr == "astype" and isinstance(call_node.func.value, ast.Name):
+                target = "numpy.astype"
+            elif call_node.func.attr == "copy" and isinstance(call_node.func.value, ast.Name):
+                target = "numpy.copy"
         elif isinstance(call_node.func, ast.Name):
             target = call_node.func.id
         if target.startswith("np."):
