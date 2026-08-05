@@ -1,4 +1,4 @@
-.PHONY: install test lint clean benchmark
+.PHONY: install test lint clean benchmark corpus-gate
 
 install:
 	pip install -e ".[dev]"
@@ -19,3 +19,6 @@ clean:
 
 benchmark:
 	python benchmarks/benchmark_matmul.py
+
+corpus-gate:
+	python -m benchmarks.reproducible --baseline benchmarks/baseline.json

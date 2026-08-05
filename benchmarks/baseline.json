@@ -1,0 +1,27 @@
+{
+  "purpose": "Committed reproducibility baseline for benchmarks/reproducible.py",
+  "seed": 42,
+  "content_sha256": "c61d26110ed0400b1bd9c9e492abb4f816ca05bef30dabe69d0be456985a9201",
+  "totals": {
+    "c_files": 728,
+    "py_files": 14
+  },
+  "compile": {
+    "total": 728,
+    "passed": 728,
+    "failed": 0,
+    "failures": []
+  },
+  "corpora": [
+    {
+      "corpus_dir": "/mnt/d/Axioms/Purce/benchmarks/corpus",
+      "py_files": 14,
+      "c_files": 728,
+      "h_files": 1,
+      "prov_files": 728,
+      "error_directives": 0,
+      "unresolved_files": 0,
+      "total_c_lines": 30796
+    }
+  ]
+}

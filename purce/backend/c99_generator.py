@@ -1311,7 +1311,11 @@ class C99Generator:
             if _unresolved:
                 body = f"    #error \"Unresolved identifiers in '{node.algorithm}' body: {', '.join(sorted(_unresolved))} — update BODY_PARAM_MAP in c99_generator.py\""
             else:
-                scalar_params = {mapping.get(n, n) for n, dt, s in node.inputs if s == "scalar"}
+                scalar_params = {
+                    mapping.get(n, n)
+                    for n, dt, s in node.inputs
+                    if s != "array" and not (isinstance(s, str) and s.startswith("("))
+                }
                 body = _substitute_body_params(raw_body, mapping, scalar_constants, scalar_params)
 
         reduction_lines = []

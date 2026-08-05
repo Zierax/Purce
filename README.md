@@ -393,6 +393,23 @@ pytest -x                       # Stop on first failure
 python -m benchmarks.run_all    # Run full benchmark suite
 ```
 
+### Reproducible Corpus Gate
+
+The `benchmarks/corpus/` directory holds 14 harder real-world kernels (Kalman filtering, option pricing, ODE integration, control systems, SVD-based statistics, graph algorithms, DSP, ML). The `benchmarks/reproducible.py` harness:
+
+- Extracts every kernel with a fixed seed, fingerprints the full environment (Python/NumPy/gcc/git commit/platform/cores),
+- Compiles every generated `.c` with strict gcc (`-std=c99 -O2 -Wall -Wextra -pedantic`) in parallel,
+- Hashes the normalized content (volatile timestamps stripped) and reports to `.benchmarks/report.{json,md}`,
+- Verifies drift against the committed `benchmarks/baseline.json`.
+
+```bash
+python -m benchmarks.reproducible --baseline benchmarks/baseline.json
+# or
+make corpus-gate
+```
+
+Any change to the builder or generator that alters generated kernels fails the gate with an explicit deviation list.
+
 ---
 
 ## License

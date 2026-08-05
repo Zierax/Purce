@@ -236,6 +236,52 @@ class TestC99GeneratorAlgorithms:
         assert re.search(r'\bvoid\s+\w+\s*\(', content), "reduce_sum should have a function signature"
 
 
+class TestC99GeneratorScalarParams:
+    """Regression: scalar/None-shaped inputs must be emitted as scalar params
+    and de-subscripted in the body, while tuple-shaped inputs stay pointers."""
+
+    @staticmethod
+    def _mul_node(b_shape):
+        return MathIRNode(
+            node_id="t.mod_mul_x9y8z7w6",
+            origin_symbol="mod.mul_fn",
+            origin_file="t.py",
+            origin_line=3,
+            origin_commit=None,
+            origin_signature="double A -> double B -> double",
+            math_intent="Element-wise multiplication kernel",
+            inputs=[("A", Dtype.FLOAT64, "array"), ("B", Dtype.FLOAT64, b_shape)],
+            outputs=[("C", Dtype.FLOAT64, "array")],
+            effects=[Effect.PURE],
+            algorithm="element_mul",
+            reductions=[],
+            stack_usage=64,
+        )
+
+    def _render(self, node) -> str:
+        gen = C99Generator()
+        graph = _make_graph(node)
+        result = gen.generate(graph, "mymod")
+        c_files = [f for f in result.files if f.file_type == "c"]
+        return c_files[0].content
+
+    def test_none_shape_input_is_scalar_param_and_not_subscripted(self) -> None:
+        content = self._render(self._mul_node(None))
+        assert re.search(r'\bvoid\s+\w+\(int\s+n,\s*const\s+double\s*\*\s*restrict\s+A,\s*double\s+B,\s*double\s*\*\s*restrict\s+C\)', content), content
+        assert re.search(r'C\[i\] = A\[i\] \* B;', content), content
+        assert "B[i]" not in content
+
+    def test_tuple_shape_input_is_pointer_and_stays_subscripted(self) -> None:
+        content = self._render(self._mul_node("(m,n)"))
+        assert re.search(r'\bconst\s+double\s*\*\s*restrict\s+B\b', content), content
+        assert "B[i]" in content
+
+    def test_scalar_shape_input_is_scalar_param(self) -> None:
+        content = self._render(self._mul_node("scalar"))
+        assert re.search(r'\bdouble\s+B\b', content), content
+        assert "B[i]" not in content
+
+
 class TestC99GeneratorWriteAll:
     def test_write_files(self, tmp_path: object) -> None:
         gen = C99Generator()
