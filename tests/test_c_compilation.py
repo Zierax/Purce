@@ -41,12 +41,12 @@ def _find_gcc() -> str:
 
 
 def _compile_c_file(c_path: str, gcc: str) -> tuple[bool, str]:
-    with tempfile.NamedTemporaryFile(suffix=".exe", delete=False) as tmp:
+    with tempfile.NamedTemporaryFile(suffix=".o", delete=False) as tmp:
         out_path = tmp.name
     try:
         result = subprocess.run(
             [gcc, "-std=c99", "-O2", "-Wall", "-Wextra", "-pedantic",
-             "-o", out_path, c_path, "-lm"],
+             "-c", c_path, "-o", out_path, "-lm"],
             capture_output=True, text=True, timeout=30,
         )
         return result.returncode == 0, result.stderr

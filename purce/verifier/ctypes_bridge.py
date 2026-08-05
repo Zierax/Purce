@@ -13,7 +13,7 @@ import subprocess
 import tempfile
 from dataclasses import dataclass
 
-from purce.backend.c99_generator import MATH_KERNEL_BODIES
+from purce.backend.c99_generator import BODY_PARAM_MAP, MATH_KERNEL_BODIES
 
 
 @dataclass
@@ -47,34 +47,40 @@ _C_SOURCE_HEADER = r"""
 
 
 def _make_kernel_wrapper(name: str) -> str:
-    """Generate a static kernel wrapper with consistent parameter names."""
-    body = _KERNEL_BODIES[name]
-
-    if name in ("element_add", "element_sub", "element_mul", "element_div"):
-        sig = f"static void kernel_{name}(const double *A, const double *B, double *C, int n)"
-    elif name in ("reduce_sum", "reduce_mean", "reduce_max", "reduce_min"):
-        sig = f"static void kernel_{name}(const double *x, int n, double *result_ptr)"
-    elif name in ("alloc_zeros", "alloc_ones", "alloc_eye"):
-        sig = f"static void kernel_{name}(double *out, int n)"
-    elif name.startswith("element_"):
-        sig = f"static void kernel_{name}(const double *x, double *out, int n)"
-    elif name == "matmul":
-        sig = f"static void kernel_{name}(const double *A, const double *B, double *C, int m, int n, int p)"
-    elif name == "linalg_solve":
-        sig = f"static void kernel_{name}(const double *A, const double *b, double *x, int n)"
-    elif name == "linalg_inv":
-        sig = f"static void kernel_{name}(const double *A, double *inv, int n)"
-    elif name == "linalg_cholesky":
-        sig = f"static void kernel_{name}(const double *A, double *L, int n)"
-    elif name == "linalg_eig":
-        sig = f"static void kernel_{name}(const double *A, double *eigenvalues, int n)"
-    elif name in ("fft", "ifft"):
-        sig = f"static void kernel_{name}(const double *real, const double *imag, double *out_real, double *out_imag, int n, int log_n)"
-    else:
+    """Generate a static kernel wrapper with a signature derived from BODY_PARAM_MAP."""
+    body = _KERNEL_BODIES.get(name)
+    if body is None:
+        return ""
+    spec = BODY_PARAM_MAP.get(name)
+    if not spec:
         return ""
 
+    params: list[str] = []
+    for pname, role in spec:
+        if role.startswith("input_"):
+            params.append(f"const double *{pname}")
+        elif role.startswith("output_"):
+            params.append(f"double *{pname}")
+        else:
+            params.append(f"int {pname}")
+
+    sig = f"static void kernel_{name}({', '.join(params)})"
     indented = "\n".join("    " + line for line in body.split("\n"))
     return f"{sig} {{\n{indented}\n}}\n"
+
+
+# Kernels that have a ctypes-callable wrapper in _C_SOURCE_WRAPPERS.
+# Only these need to be compiled into the shared library.
+_WRAPPED_KERNELS = {
+    "element_add", "element_sub", "element_mul", "element_div",
+    "reduce_sum", "reduce_mean", "reduce_max", "reduce_min",
+    "element_abs", "element_sqrt", "element_exp", "element_log",
+    "element_sin", "element_cos", "element_tan",
+    "matmul",
+    "linalg_solve", "linalg_inv", "linalg_cholesky", "linalg_eig",
+    "fft", "ifft",
+    "alloc_zeros", "alloc_ones", "alloc_eye",
+}
 
 
 _C_SOURCE_WRAPPERS = r"""
@@ -120,7 +126,7 @@ void purce_eye(double *o, int n) { kernel_alloc_eye(o, n); }
 def _generate_c_source() -> str:
     """Generate complete C source with all kernels and wrappers."""
     parts = [_C_SOURCE_HEADER]
-    for name in sorted(_KERNEL_BODIES.keys()):
+    for name in sorted(_WRAPPED_KERNELS):
         parts.append(_make_kernel_wrapper(name))
         parts.append("")
     parts.append(_C_SOURCE_WRAPPERS)
