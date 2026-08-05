@@ -570,10 +570,10 @@ MATH_KERNEL_BODIES: dict[str, str] = {
         C[i] = cond[i] ? A[i] : B[i];
     }""",
     "element_clip": """\
-    /* Element-wise clip: out[i] = min(max(x[i], lo), hi) */
+    /* Element-wise clip: out[i] = min(max(x[i], lo[i]), hi[i]) */
     for (int i = 0; i < n; i++) {
         double v = x[i];
-        out[i] = (v < lo) ? lo : (v > hi) ? hi : v;
+        out[i] = (v < lo[i]) ? lo[i] : (v > hi[i]) ? hi[i] : v;
     }""",
     "element_neg": """\
     /* Element-wise negation: out[i] = -x[i] */
@@ -967,9 +967,13 @@ MATH_KERNEL_BODIES: dict[str, str] = {
 
 
 def _sanitize_name(name: str) -> str:
+    if name is None:
+        return "_unnamed"
     clean = name.replace(".", "_").replace("-", "_").replace("/", "_").replace("\\", "_")
     clean = re.sub(r'[^A-Za-z0-9_]', '_', clean)
-    clean = re.sub(r'_+', '_', clean).strip('_')
+    clean = re.sub(r'_+', '_', clean)
+    while clean.endswith('_'):
+        clean = clean[:-1]
     if not clean:
         clean = "_unnamed"
     if clean[0].isdigit():
@@ -987,37 +991,35 @@ def _build_body_param_mapping(node: MathIRNode) -> dict[str, str]:
         if source.startswith("input_"):
             idx = int(source.split("_")[1])
             if idx < len(node.inputs):
-                mapping[canonical] = node.inputs[idx][0]
+                mapping[canonical] = _sanitize_name(node.inputs[idx][0])
         elif source.startswith("output_"):
             idx = int(source.split("_")[1])
             if idx < len(node.outputs):
-                mapping[canonical] = node.outputs[idx][0]
-        elif source == "length":
-            if node.inputs:
-                mapping[canonical] = "n"
-            else:
-                mapping[canonical] = "n"
-        elif source == "dim":
-            mapping[canonical] = "n"
-        elif source == "dim_m":
-            mapping[canonical] = "m"
-        elif source == "dim_n":
-            mapping[canonical] = "n"
-        elif source == "dim_k":
-            mapping[canonical] = "p"
-        elif source == "log_length":
-            mapping[canonical] = "log_n"
+                mapping[canonical] = _sanitize_name(node.outputs[idx][0])
+        elif source in ("length", "dim", "dim_m", "dim_n", "dim_k", "log_length"):
+            mapping[canonical] = canonical
         else:
             mapping[canonical] = canonical
+
+    operand_names = set()
+    for canonical, source in mapping_spec:
+        if source.startswith(("input_", "output_")):
+            operand_names.add(mapping.get(canonical))
+
+    dim_sources = ("length", "dim", "dim_m", "dim_n", "dim_k", "log_length")
+    for canonical, source in mapping_spec:
+        if source in dim_sources and mapping.get(canonical) in operand_names:
+            mapping[canonical] = f"{canonical}_len"
 
     return mapping
 
 
-def _substitute_body_params(body: str, mapping: dict[str, str], scalar_constants: dict[str, float] | None = None) -> str:
+def _substitute_body_params(body: str, mapping: dict[str, str], scalar_constants: dict[str, float] | None = None, scalar_params: set[str] | None = None) -> str:
     """Substitute canonical parameter names in kernel body with IR parameter names.
 
     Uses longest-match-first to avoid partial replacements (e.g. 'out' before 'out_real').
     When a mapped name is a scalar constant, replaces array access (e.g. B[i]) with the constant.
+    When a mapped name is a scalar-shaped param, replaces array access (e.g. B[i]) with the bare name.
     """
     filtered = {k: v for k, v in mapping.items() if k}
     if not filtered:
@@ -1025,6 +1027,14 @@ def _substitute_body_params(body: str, mapping: dict[str, str], scalar_constants
     sorted_keys = sorted(filtered.keys(), key=len, reverse=True)
     pattern = re.compile(r'\b(' + '|'.join(re.escape(k) for k in sorted_keys) + r')\b')
     body = pattern.sub(lambda m: filtered[m.group(0)], body)
+
+    if scalar_params:
+        for mapped_name in scalar_params:
+            body = re.sub(
+                r'\b' + re.escape(mapped_name) + r'\s*\[[^\]]*\]',
+                mapped_name,
+                body,
+            )
 
     if scalar_constants:
         for mapped_name, const_val in scalar_constants.items():
@@ -1101,7 +1111,7 @@ DERIVED_PARAMS: dict[str, list[str]] = {
     "matrix_diag": ["n"],
     "matrix_tril": ["n"],
     "matrix_triu": ["n"],
-    "array_concat": ["n"],
+    "array_concat": ["n_a", "n_b"],
     "array_take": ["k"],
     "array_argsort": ["n"],
     "array_permutation": ["n"],
@@ -1301,7 +1311,8 @@ class C99Generator:
             if _unresolved:
                 body = f"    #error \"Unresolved identifiers in '{node.algorithm}' body: {', '.join(sorted(_unresolved))} — update BODY_PARAM_MAP in c99_generator.py\""
             else:
-                body = _substitute_body_params(raw_body, mapping, scalar_constants)
+                scalar_params = {mapping.get(n, n) for n, dt, s in node.inputs if s == "scalar"}
+                body = _substitute_body_params(raw_body, mapping, scalar_constants, scalar_params)
 
         reduction_lines = []
         for r in node.reductions:
@@ -1367,33 +1378,69 @@ class C99Generator:
     def _make_function_signature(self, node: MathIRNode, mapping: dict[str, str] | None = None, scalar_constants: dict[str, float] | None = None) -> str:
         c_params: list[str] = []
         skip_inputs = set()
+        emitted_names = set()
 
         if scalar_constants:
+            array_input_names = {n for n, dt, s in node.inputs if s == "array" or (isinstance(s, str) and s.startswith("("))}
             for const_name in scalar_constants:
-                skip_inputs.add(const_name)
+                if const_name not in array_input_names:
+                    skip_inputs.add(const_name)
 
-        for name, dtype, shape in node.inputs:
+        derived = _get_derived_params(node.algorithm)
+        mapping_spec = BODY_PARAM_MAP.get(node.algorithm, [])
+        input_idx_canon: dict[int, str] = {}
+        output_idx_canon: dict[int, str] = {}
+        for canonical, source in mapping_spec:
+            if source.startswith("input_"):
+                input_idx_canon[int(source.split("_")[1])] = canonical
+            elif source.startswith("output_"):
+                output_idx_canon[int(source.split("_")[1])] = canonical
+        operand_names = set()
+        for canonical, source in mapping_spec:
+            if source.startswith(("input_", "output_")):
+                operand_names.add(mapping.get(canonical))
+        out_names = set()
+        for name, dtype, shape in node.outputs:
+            out_names.add(_sanitize_name(mapping.get(name, name) if mapping else name))
+
+        for idx, (name, dtype, shape) in enumerate(node.inputs):
             if name in skip_inputs:
                 continue
+            if idx in input_idx_canon:
+                mapped = _sanitize_name(mapping.get(input_idx_canon[idx]))
+            else:
+                mapped = _sanitize_name(name)
+            if mapped in emitted_names:
+                continue
+            if mapped in derived and mapped not in operand_names:
+                continue
+            if mapped in out_names:
+                continue
+            emitted_names.add(mapped)
             c_type = DTYPE_TO_C.get(dtype, "double")
-            mapped = mapping.get(name, name) if mapping else name
             if shape == "array" or (isinstance(shape, str) and shape.startswith("(")):
                 c_params.append(f"const {c_type} * restrict {mapped}")
             else:
                 c_params.append(f"{c_type} {mapped}")
 
-        for name, dtype, shape in node.outputs:
+        for idx, (name, dtype, shape) in enumerate(node.outputs):
             c_type = DTYPE_TO_C.get(dtype, "double")
-            mapped = mapping.get(name, name) if mapping else name
+            if idx in output_idx_canon:
+                mapped = _sanitize_name(mapping.get(output_idx_canon[idx]))
+            else:
+                mapped = _sanitize_name(name)
+            if mapped in emitted_names:
+                continue
+            emitted_names.add(mapped)
             if shape == "array" or (isinstance(shape, str) and shape.startswith("(")):
                 c_params.append(f"{c_type} * restrict {mapped}")
             else:
                 c_params.append(f"{c_type} *{mapped}")
 
-        derived = _get_derived_params(node.algorithm)
         for dparam in derived:
-            if not any(re.search(r'\b' + re.escape(dparam) + r'\b', p) for p in c_params):
-                c_params.insert(0, f"int {dparam}")
+            mapped_dparam = mapping.get(dparam, dparam) if mapping else dparam
+            if not any(re.search(r'\b' + re.escape(mapped_dparam) + r'\b', p) for p in c_params):
+                c_params.insert(0, f"int {mapped_dparam}")
 
         params_str = ", ".join(c_params) if c_params else "void"
         func_name = _sanitize_name(node.node_id)
