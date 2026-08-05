@@ -91,6 +91,7 @@ class SemanticSlicer:
                     heap_usage=node.heap_usage,
                     reentrant=node.reentrant,
                     dep_kind=kind,
+                    scalar_constants=dict(node.scalar_constants),
                 )
                 result.graph.add_node(new_node)
 
@@ -159,6 +160,7 @@ class SemanticSlicer:
                 heap_usage=node.heap_usage,
                 reentrant=node.reentrant,
                 dep_kind=node.dep_kind,
+                scalar_constants=dict(node.scalar_constants),
             )
             resolved.add_node(new_node)
 

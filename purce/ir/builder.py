@@ -177,6 +177,20 @@ def _get_qualified_name(node: ast.expr) -> str:
     return ""
 
 
+_NUMPY_DTYPE_NAMES = {
+    "np.float16", "np.float32", "np.float64", "np.float128",
+    "np.int8", "np.int16", "np.int32", "np.int64",
+    "np.uint8", "np.uint16", "np.uint32", "np.uint64",
+    "np.complex64", "np.complex128", "np.bool_", "np.object_",
+    "numpy.float16", "numpy.float32", "numpy.float64", "numpy.float128",
+    "numpy.int8", "numpy.int16", "numpy.int32", "numpy.int64",
+    "numpy.uint8", "numpy.uint16", "numpy.uint32", "numpy.uint64",
+    "numpy.complex64", "numpy.complex128", "numpy.bool_", "numpy.object_",
+}
+
+_PY_BUILTIN_TYPE_NAMES = {"float", "int", "complex", "bool", "str", "bytes", "bytearray"}
+
+
 @dataclass
 class _CallInfo:
     target: str
@@ -421,8 +435,8 @@ class MathIRBuilder:
                     return (name, dt, None)
             return (arg_node.id, Dtype.FLOAT64, None)
 
-        if isinstance(arg_node, ast.Constant) and isinstance(arg_node.value, (int, float)):
-            const_val = float(arg_node.value)
+        if isinstance(arg_node, ast.Constant) and isinstance(arg_node.value, (int, float, complex)):
+            const_val = float(arg_node.value.real) if isinstance(arg_node.value, complex) else float(arg_node.value)
             const_name = f"_const_{len(scalar_constants)}"
             if const_name not in existing_names:
                 dt = Dtype.FLOAT64 if isinstance(arg_node.value, float) else Dtype.INT64
@@ -454,6 +468,12 @@ class MathIRBuilder:
                     scalar_constants[const_name] = math.e
                     existing_names.add(const_name)
                 return (const_name, Dtype.FLOAT64, "scalar")
+            if full_name in _NUMPY_DTYPE_NAMES:
+                const_name = f"_const_{len(scalar_constants)}"
+                if const_name not in existing_names:
+                    scalar_constants[const_name] = 0.0
+                    existing_names.add(const_name)
+                return (const_name, Dtype.FLOAT64, "scalar")
 
         if isinstance(arg_node, ast.Call):
             target = ""
@@ -468,8 +488,8 @@ class MathIRBuilder:
                 return (inter_name, Dtype.FLOAT64, None)
 
         if isinstance(arg_node, ast.UnaryOp) and isinstance(arg_node.op, ast.USub):
-            if isinstance(arg_node.operand, ast.Constant) and isinstance(arg_node.operand.value, (int, float)):
-                const_val = -float(arg_node.operand.value)
+            if isinstance(arg_node.operand, ast.Constant) and isinstance(arg_node.operand.value, (int, float, complex)):
+                const_val = -float(arg_node.operand.value.real) if isinstance(arg_node.operand.value, complex) else -float(arg_node.operand.value)
                 const_name = f"_const_{len(scalar_constants)}"
                 if const_name not in existing_names:
                     scalar_constants[const_name] = const_val
@@ -483,7 +503,17 @@ class MathIRBuilder:
                     existing_names.add(neg_name)
                 return (neg_name, Dtype.FLOAT64, "scalar")
 
+        if isinstance(arg_node, ast.Subscript):
+            if isinstance(arg_node.value, ast.Name) and arg_node.value.id in existing_names:
+                return (arg_node.value.id, Dtype.FLOAT64, "array")
+
         if isinstance(arg_node, ast.Name):
+            if arg_node.id in _PY_BUILTIN_TYPE_NAMES:
+                const_name = f"_const_{len(scalar_constants)}"
+                if const_name not in existing_names:
+                    scalar_constants[const_name] = 0.0
+                    existing_names.add(const_name)
+                return (const_name, Dtype.FLOAT64, "scalar")
             for name, dt, shape in func_inputs:
                 if name == arg_node.id:
                     return (name, dt, None)
@@ -745,8 +775,8 @@ class MathIRBuilder:
         all_dep_ids: list[str],
         node_idx: list[int],
     ) -> tuple[str, Dtype, str | None]:
-        if isinstance(expr, ast.Constant) and isinstance(expr.value, (int, float)):
-            const_val = float(expr.value)
+        if isinstance(expr, ast.Constant) and isinstance(expr.value, (int, float, complex)):
+            const_val = float(expr.value.real) if isinstance(expr.value, complex) else float(expr.value)
             const_name = f"_const_{len(scalar_constants)}"
             if const_name not in existing_names:
                 scalar_constants[const_name] = const_val
@@ -764,6 +794,12 @@ class MathIRBuilder:
                 const_name = f"_const_{len(scalar_constants)}"
                 if const_name not in existing_names:
                     scalar_constants[const_name] = const_val
+                    existing_names.add(const_name)
+                return (const_name, Dtype.FLOAT64, "scalar")
+            if expr.id in _PY_BUILTIN_TYPE_NAMES:
+                const_name = f"_const_{len(scalar_constants)}"
+                if const_name not in existing_names:
+                    scalar_constants[const_name] = 0.0
                     existing_names.add(const_name)
                 return (const_name, Dtype.FLOAT64, "scalar")
             return (expr.id, Dtype.FLOAT64, None)
@@ -986,6 +1022,14 @@ class MathIRBuilder:
             if isinstance(expr.value, ast.Name) and expr.value.id in intermediates:
                 inter_name = intermediates[expr.value.id]
                 return (inter_name, Dtype.FLOAT64, None)
+            if isinstance(expr.value, ast.Call):
+                inner = self._decompose_expr(
+                    expr.value, func_inputs, scalar_constants, intermediates,
+                    symbol_table, existing_names, constant_assignments,
+                    module_name, func_name, origin_file, all_dep_ids, node_idx,
+                )
+                if isinstance(inner, tuple) and not inner[0].startswith("_unresolved_"):
+                    return (inner[0], inner[1], "array")
 
         if isinstance(expr, ast.Attribute):
             full_name = ""
@@ -1011,6 +1055,12 @@ class MathIRBuilder:
                     scalar_constants[const_name] = float('inf')
                     existing_names.add(const_name)
                 return (const_name, Dtype.FLOAT64, "scalar")
+            if full_name in _NUMPY_DTYPE_NAMES:
+                const_name = f"_const_{len(scalar_constants)}"
+                if const_name not in existing_names:
+                    scalar_constants[const_name] = 0.0
+                    existing_names.add(const_name)
+                return (const_name, Dtype.FLOAT64, "scalar")
 
         if isinstance(expr, ast.Subscript):
             if isinstance(expr.slice, ast.Constant) and isinstance(expr.slice.value, int):
@@ -1019,6 +1069,12 @@ class MathIRBuilder:
                     scalar_constants[const_name] = 0.0
                     existing_names.add(const_name)
                 return (const_name, Dtype.INT64, "scalar")
+            base = expr.value
+            if isinstance(base, ast.Name) and base.id in symbol_table:
+                name, dt = symbol_table[base.id]
+                return (name, dt, "array")
+            if isinstance(base, ast.Name) and base.id in intermediates:
+                return (intermediates[base.id], Dtype.FLOAT64, "array")
 
         return self._resolve_arg_for_full_body(
             expr, func_inputs, scalar_constants, intermediates,
@@ -1601,6 +1657,15 @@ class MathIRBuilder:
                         self.graph.entry_points.append(node_id)
                         all_dep_ids.append(node_id)
                         node_idx += 1
+                    else:
+                        if stmt.value.args:
+                            resolved = self._resolve_arg_for_full_body(
+                                stmt.value.args[0], func_inputs, scalar_constants,
+                                intermediates, symbol_table, existing_names,
+                                constant_assignments,
+                            )
+                            if not resolved[0].startswith("_unresolved_"):
+                                symbol_table[target_name] = (resolved[0], resolved[1])
 
         return_stmt = None
         for stmt in func.body:
@@ -1733,15 +1798,21 @@ class MathIRBuilder:
                     scalar_constants[const_name] = const_val
                     existing_names.add(const_name)
                 return (const_name, Dtype.FLOAT64, "scalar")
+            if arg_node.id in _PY_BUILTIN_TYPE_NAMES:
+                const_name = f"_const_{len(scalar_constants)}"
+                if const_name not in existing_names:
+                    scalar_constants[const_name] = 0.0
+                    existing_names.add(const_name)
+                return (const_name, Dtype.FLOAT64, "scalar")
 
-        if isinstance(arg_node, ast.Constant) and isinstance(arg_node.value, (int, float)):
-            const_val = float(arg_node.value)
+        if isinstance(arg_node, ast.Constant) and isinstance(arg_node.value, (int, float, complex)):
+            const_val = float(arg_node.value.real) if isinstance(arg_node.value, complex) else float(arg_node.value)
             const_name = f"_const_{len(scalar_constants)}"
             if const_name not in existing_names:
                 dt = Dtype.FLOAT64 if isinstance(arg_node.value, float) else Dtype.INT64
                 scalar_constants[const_name] = const_val
                 existing_names.add(const_name)
-                return (const_name, Dtype.FLOAT64, "scalar")
+            return (const_name, Dtype.FLOAT64, "scalar")
 
         if isinstance(arg_node, ast.Call):
             call_target = self._resolve_call_target(arg_node)
@@ -1761,6 +1832,13 @@ class MathIRBuilder:
                     if base_name in symbol_table:
                         name, dt = symbol_table[base_name]
                         return (name, dt, None)
+            if call_target not in NUMPY_OP_MAP:
+                if arg_node.args:
+                    resolved = self._resolve_arg_for_full_body(
+                        arg_node.args[0], func_inputs, scalar_constants, intermediates,
+                        symbol_table, existing_names, constant_assignments,
+                    )
+                    return (resolved[0], resolved[1], resolved[2])
 
         if isinstance(arg_node, ast.Attribute) and arg_node.attr == "shape":
             if isinstance(arg_node.value, ast.Name) and arg_node.value.id in symbol_table:
@@ -1798,6 +1876,12 @@ class MathIRBuilder:
                     scalar_constants[const_name] = math.e
                     existing_names.add(const_name)
                 return (const_name, Dtype.FLOAT64, "scalar")
+            if full_name in _NUMPY_DTYPE_NAMES:
+                const_name = f"_const_{len(scalar_constants)}"
+                if const_name not in existing_names:
+                    scalar_constants[const_name] = 0.0
+                    existing_names.add(const_name)
+                return (const_name, Dtype.FLOAT64, "scalar")
 
         if isinstance(arg_node, ast.Subscript):
             if isinstance(arg_node.value, ast.Attribute) and arg_node.value.attr == "shape":
@@ -1811,10 +1895,16 @@ class MathIRBuilder:
                             scalar_constants[const_name] = const_val
                             existing_names.add(const_name)
                         return (const_name, Dtype.INT64, "scalar")
+            if isinstance(arg_node.value, ast.Name):
+                if arg_node.value.id in symbol_table:
+                    name, dt = symbol_table[arg_node.value.id]
+                    return (name, dt, "array")
+                if arg_node.value.id in intermediates:
+                    return (intermediates[arg_node.value.id], Dtype.FLOAT64, "array")
 
         if isinstance(arg_node, ast.UnaryOp) and isinstance(arg_node.op, ast.USub):
-            if isinstance(arg_node.operand, ast.Constant) and isinstance(arg_node.operand.value, (int, float)):
-                const_val = -float(arg_node.operand.value)
+            if isinstance(arg_node.operand, ast.Constant) and isinstance(arg_node.operand.value, (int, float, complex)):
+                const_val = -float(arg_node.operand.value.real) if isinstance(arg_node.operand.value, complex) else -float(arg_node.operand.value)
                 const_name = f"_const_{len(scalar_constants)}"
                 if const_name not in existing_names:
                     scalar_constants[const_name] = const_val

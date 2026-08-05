@@ -69,6 +69,11 @@ Purce is a semantic compiler that takes Python/NumPy code and produces clean, se
 
 1. **Parser** — Uses Python's `ast` module to extract function definitions and NumPy call graphs
 2. **Math-IR Builder** — Converts AST nodes into a language-agnostic intermediate representation (DAG of semantic units)
+   - Multi-statement body decomposition: walks all statements, tracks assignments as intermediate variables
+   - Recursive expression decomposition: handles nested BinOps, UnaryOps, and composed calls
+   - Guard clause extraction: processes numpy calls inside if/else blocks
+   - Scalar constant extraction: resolves constant assignments and literal values
+   - 85+ NumPy operations mapped to C99 algorithm identifiers
 3. **Semantic Slicer** — Resolves call graphs, eliminates dead code, classifies dependencies (math kernel vs PAL vs data asset)
 4. **C99 Backend** — Generates C99 code programmatically via Python string templates in `c99_generator.py`, following the C99-SOS standard
 5. **Verification** — Compiles generated C99 to a shared library via gcc, loads via ctypes, and performs differential fuzzing comparing compiled C output against Python reference implementations. Z3 SMT for bounds checking.
@@ -213,6 +218,9 @@ Every generated file follows the **C99 Semantic Output Standard** — a strict c
 | `numpy.linalg.inv(A)` | `linalg_inv` |
 | `numpy.linalg.cholesky(A)` | `linalg_cholesky` |
 | `numpy.linalg.eig(A)` | `linalg_eig` |
+| `numpy.linalg.det(A)` | `linalg_det` |
+| `numpy.linalg.qr(A)` | `linalg_qr` |
+| `numpy.linalg.svd(A)` | `linalg_svd` |
 
 ### Element-wise Operations
 
@@ -229,8 +237,56 @@ Every generated file follows the **C99 Semantic Output Standard** — a strict c
 | `numpy.sin(x)` | `element_sin` |
 | `numpy.cos(x)` | `element_cos` |
 | `numpy.tan(x)` | `element_tan` |
+| `numpy.tanh(x)` | `element_tanh` |
+| `numpy.sign(x)` | `element_sign` |
+| `numpy.floor(x)` | `element_floor` |
+| `numpy.ceil(x)` | `element_ceil` |
+| `numpy.round(x)` | `element_round` |
+| `numpy.clip(x, lo, hi)` | `element_clip` |
+| `numpy.where(c, a, b)` | `element_where` |
+| `numpy.maximum(A, B)` | `element_max` |
+| `numpy.minimum(A, B)` | `element_min` |
+| `numpy.power(A, B)` | `element_power` |
+| `numpy.isnan(x)` | `element_isnan` |
+| `numpy.isinf(x)` | `element_isinf` |
+| `numpy.isclose(A, B)` | `element_isclose` |
 
 ### Reductions
+
+| Python | C99 Algorithm |
+|--------|---------------|
+| `numpy.sum(x)` | `reduce_sum` |
+| `numpy.mean(x)` | `reduce_mean` |
+| `numpy.max(x)` | `reduce_max` |
+| `numpy.min(x)` | `reduce_min` |
+| `numpy.var(x)` | `reduce_var` |
+| `numpy.prod(x)` | `reduce_prod` |
+| `numpy.argmax(x)` | `reduce_argmax` |
+| `numpy.argmin(x)` | `reduce_argmin` |
+| `numpy.any(x)` | `reduce_any` |
+| `numpy.all(x)` | `reduce_all` |
+| `numpy.cumsum(x)` | `reduce_cumsum` |
+
+### Array Operations
+
+| Python | C99 Algorithm |
+|--------|---------------|
+| `numpy.concatenate(arrays)` | `array_concat` |
+| `numpy.sort(x)` | `array_sort` |
+| `numpy.argsort(x)` | `array_argsort` |
+| `numpy.take(x, idx)` | `array_take` |
+| `numpy.take_along_axis(x, idx, axis)` | `array_take` |
+| `numpy.flip(x)` | `array_flip` |
+| `numpy.roll(x, shift)` | `array_roll` |
+| `numpy.tile(x, reps)` | `array_tile` |
+| `numpy.repeat(x, reps)` | `array_repeat` |
+| `numpy.split(x, n)` | `array_split` |
+| `numpy.unique(x)` | `array_unique` |
+| `numpy.stack(arrays)` | `array_concat` |
+| `numpy.reshape(x, shape)` | `array_reshape` |
+| `numpy.squeeze(x)` | `array_squeeze` |
+| `numpy.expand_dims(x, axis)` | `array_expand_dims` |
+| `numpy.flatten(x)` | `array_flatten` |
 
 | Python | C99 Algorithm |
 |--------|---------------|

@@ -14,6 +14,7 @@ def _make_node(
     deps: list[str] | None = None,
     effects: list[Effect] | None = None,
     dep_kind: DepKind = DepKind.MATH_KERNEL,
+    scalar_constants: dict[str, float] | None = None,
 ) -> MathIRNode:
     return MathIRNode(
         node_id=node_id,
@@ -30,6 +31,7 @@ def _make_node(
         nested_deps=deps or [],
         stack_usage=64,
         dep_kind=dep_kind,
+        scalar_constants=scalar_constants or {},
     )
 
 
@@ -269,3 +271,25 @@ class TestSemanticSlicerEdgeCases:
         assert node2.nested_deps == ["level1"]
         node1 = result.graph.nodes["level1"]
         assert node1.nested_deps == ["level0"]
+
+
+class TestSemanticSlicerScalarConstants:
+    def test_scalar_constants_preserved_through_slice(self) -> None:
+        g = MathIRGraph()
+        g.add_node(_make_node("a", scalar_constants={"_const_0": 3.141592653589793}))
+        g.entry_points = ["a"]
+
+        slicer = SemanticSlicer()
+        result = slicer.slice(g, ["a"])
+
+        assert result.graph.nodes["a"].scalar_constants == {"_const_0": 3.141592653589793}
+
+    def test_scalar_constants_preserved_through_resolve(self) -> None:
+        g = MathIRGraph()
+        g.add_node(_make_node("a", scalar_constants={"_const_1": 2.0}))
+        g.entry_points = ["a"]
+
+        slicer = SemanticSlicer()
+        resolved = slicer.resolve_transitive_deps(g)
+
+        assert resolved.nodes["a"].scalar_constants == {"_const_1": 2.0}

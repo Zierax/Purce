@@ -106,8 +106,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **914 C functions** generated from 23 realworld test files (was 566)
-- **23 unresolved inputs** (2.5%, was 169/18.4%)
+- **911 C functions** generated from 23 realworld test files (was 566)
+- **0 unresolved inputs** (was 169/18.4%)
 - **85+ NumPy operations** with full C99 implementations
 - Multi-statement body decomposition with symbol table tracking
 - Recursive expression decomposition for nested BinOps/Calls
@@ -121,6 +121,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - ast.Tuple handling alongside ast.List in all arg resolution paths
 - Type cast mapping (np.float64 → element_copy)
 - .shape tuple unpacking and BinOp assignment decomposition
+- Complex constant handling (`-2j`, `1j`) in all arg resolvers
+- NumPy dtype attribute constants (`np.complex128`, `np.float64`) resolved as scalars
+- Python builtin type names (`float`, `int`, `complex`) resolved as scalars
+- Subscript/slicing base resolution (`x[0::2]`, `V[:, :1, :]`, `feature_map[x0, y0]`)
+- Unknown/local function calls resolve to first-argument identity
+- Local function call assignments tracked in symbol table
+- `.T` transpose on Call results (e.g. `mel_filterbank(...).T`)
+
+### Fixed
+- **Semantic Slicer dropped `scalar_constants`** when copying nodes, causing scalar
+  constants to emit as invalid `double _const_N[i]` array indexing — now preserved
+  through both `slice()` and `resolve_transitive_deps()`
+- Indentation bug in `_resolve_arg_for_full_body` constant handler that could
+  return `None` for repeated constants
 
 ### Planned
 

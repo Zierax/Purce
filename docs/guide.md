@@ -72,7 +72,7 @@ For each node in topological order:
 - FFT power-of-two constraints
 
 **Differential Fuzzing:**
-- 55+ operations × N iterations
+- 85+ operations × N iterations
 - Python reference implementation as oracle
 - Random input generation
 - Output comparison within tolerance (rtol=1e-5, atol=1e-8)
