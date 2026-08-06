@@ -50,6 +50,10 @@ _VOLATILE_PATTERNS = [
     re.compile(r'"generated_at":\s*"[^"]*"'),
 ]
 
+# Absolute checkout path is embedded in ORIGIN FILE / SOURCE FILE fields of every
+# generated .c and .prov.json; normalize it so the content hash is checkout-independent.
+_CHECKOUT_ROOT = str(_PROJECT_ROOT).replace("\\", "/")
+
 
 # ── Fingerprint ──────────────────────────────────────────────────────────────
 
@@ -172,7 +176,9 @@ def run_extraction(corpus_dir: Path, out_dir: Path) -> ExtractionStats:
 
 
 def _normalize_content(text: str) -> str:
-    """Strip volatile timestamps so hashing is stable across runs."""
+    """Strip volatile timestamps and the absolute checkout path so the
+    content hash is stable across runs and checkout locations."""
+    text = text.replace(_CHECKOUT_ROOT, "{PURCE_ROOT}")
     for pattern in _VOLATILE_PATTERNS:
         text = pattern.sub("", text)
     return text
@@ -232,6 +238,8 @@ def _compile_one(args: tuple[str, str]) -> tuple[str, str, bool, str]:
 
 
 def run_compile_gate(out_dir: Path, jobs: int) -> CompileStats:
+    if jobs < 1:
+        raise ValueError(f"jobs must be >= 1, got {jobs}")
     gcc = shutil.which("gcc")
     if not gcc:
         raise RuntimeError("gcc not found; cannot run compile gate")

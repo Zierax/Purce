@@ -51,7 +51,9 @@ def _process_source(
     click.echo(f"{command_name}: {source_dir} -> {output} (target: {target})")
 
     source_path = Path(source_dir)
-    py_files = list(source_path.rglob("*.py"))
+    # Sort for deterministic enumeration order: file order feeds source
+    # concatenation, which sets origin-line offsets in generated kernels.
+    py_files = sorted(source_path.rglob("*.py"), key=lambda p: str(p))
 
     if not py_files:
         click.echo("Error: No Python files found in source directory", err=True)

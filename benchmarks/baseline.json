@@ -1,7 +1,7 @@
 {
   "purpose": "Committed reproducibility baseline for benchmarks/reproducible.py",
   "seed": 42,
-  "content_sha256": "c61d26110ed0400b1bd9c9e492abb4f816ca05bef30dabe69d0be456985a9201",
+  "content_sha256": "e4d3d8f77c0df9e12e792136acd554d469a6a0b64fde4cb2b15d0a8a26da857c",
   "totals": {
     "c_files": 728,
     "py_files": 14
