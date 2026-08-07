@@ -1034,8 +1034,8 @@ class MathIRBuilder:
         if isinstance(expr, ast.Attribute) and expr.attr == "T":
             if isinstance(expr.value, ast.Name) and expr.value.id in symbol_table:
                 name, dt = symbol_table[expr.value.id]
-                for _, _, fi_shape in func_inputs:
-                    if _ == name:
+                for in_name, _, fi_shape in func_inputs:
+                    if in_name == name:
                         return (name, dt, fi_shape)
                 return (name, dt, "array")
             if isinstance(expr.value, ast.Name) and expr.value.id in intermediates:
@@ -1888,8 +1888,8 @@ class MathIRBuilder:
                     base_name = arg_node.func.value.id
                     if base_name in symbol_table:
                         name, dt = symbol_table[base_name]
-                        for _, _, fi_shape in func_inputs:
-                            if _ == name:
+                        for in_name, _, fi_shape in func_inputs:
+                            if in_name == name:
                                 return (name, dt, fi_shape)
                         return (name, dt, "array")
             if call_target not in NUMPY_OP_MAP:
@@ -1913,8 +1913,8 @@ class MathIRBuilder:
         if isinstance(arg_node, ast.Attribute) and arg_node.attr == "T":
             if isinstance(arg_node.value, ast.Name) and arg_node.value.id in symbol_table:
                 name, dt = symbol_table[arg_node.value.id]
-                for _, _, fi_shape in func_inputs:
-                    if _ == name:
+                for in_name, _, fi_shape in func_inputs:
+                    if in_name == name:
                         return (name, dt, fi_shape)
                 return (name, dt, "array")
             if isinstance(arg_node.value, ast.Name) and arg_node.value.id in intermediates:
