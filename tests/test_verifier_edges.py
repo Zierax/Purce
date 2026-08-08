@@ -574,8 +574,10 @@ class TestSemanticSoundnessFixes:
         rand_file = next(f for f in gen.files if f.file_type == "c"
                          and "purce_rng_state * 1103515245u" in f.content)
         assert "purce_rng_state = (uint32_t)s;" in seed_file.content
-        assert "static uint32_t purce_rng_state" in seed_file.content
-        assert "static uint32_t purce_rng_state" in rand_file.content
+        assert "uint32_t fix_mod_purce_rng_state = 12345u;" in seed_file.content
+        assert "extern uint32_t fix_mod_purce_rng_state;" not in seed_file.content
+        assert "extern uint32_t fix_mod_purce_rng_state;" in rand_file.content
+        assert "uint32_t fix_mod_purce_rng_state = 12345u;" not in rand_file.content
 
 
 @RequiresGcc

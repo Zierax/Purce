@@ -357,7 +357,14 @@ class MathIRBuilder:
         return scalar_counter
 
     def _algorithm_for(self, target: str, call_node: ast.Call | None = None) -> str:
-        """Map a numpy call target to an algorithm, with shape-driven refinements."""
+        """Map a numpy call target to an algorithm, with shape-driven refinements.
+
+        Known limitation: np.diag(x) on a 1-D array variable compiles as
+        matrix_diag (extract diagonal), matching the 2-D case. NumPy treats
+        diag(1-D) as constructing a diagonal matrix, but the input's ndim is
+        not statically known here; only literal list arguments are provably
+        1-D and correctly compile to matrix_diag_from.
+        """
         algo = NUMPY_OP_MAP.get(target, "unknown")
         if call_node is not None and target == "numpy.diag" and call_node.args:
             if isinstance(call_node.args[0], (ast.List, ast.Tuple)):

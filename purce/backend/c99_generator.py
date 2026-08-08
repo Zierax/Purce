@@ -1187,6 +1187,12 @@ class C99Generator:
 
         ordered = graph.topological_sort()
 
+        rng_nodes = [
+            n for n in ordered
+            if n.algorithm in ("alloc_random", "array_permutation", "noop_seed")
+        ]
+        first_rng_node = rng_nodes[0] if rng_nodes else None
+
         header_guard = _make_header_guard(module_name)
         header_content = self._generate_header(
             graph, module_name, header_guard, ordered, timestamp
@@ -1198,7 +1204,10 @@ class C99Generator:
         ))
 
         for node in ordered:
-            c_content = self._generate_c_file(node, module_name, timestamp)
+            rng_role = None
+            if node in rng_nodes:
+                rng_role = "define" if node is first_rng_node else "extern"
+            c_content = self._generate_c_file(node, module_name, timestamp, rng_role)
             filename = f"{_sanitize_name(node.node_id)}.c"
             result.files.append(GeneratedFile(
                 path=filename,
@@ -1291,7 +1300,8 @@ class C99Generator:
         lines.append("")
         return "\n".join(lines)
 
-    def _generate_c_file(self, node: MathIRNode, module_name: str, timestamp: str) -> str:
+    def _generate_c_file(self, node: MathIRNode, module_name: str, timestamp: str,
+                         rng_state_role: str | None = None) -> str:
         mapping = _build_body_param_mapping(node)
         scalar_constants = self._extract_scalar_constants(node)
         func_sig = self._make_function_signature(node, mapping, scalar_constants)
@@ -1378,6 +1388,12 @@ class C99Generator:
                     body = re.sub(r'for\s*\([^)]*\)\s*\{\s*\n', '', body)
                     body = re.sub(r'\n\s*\}', '', body, count=1)
 
+        if rng_state_role is not None:
+            body = body.replace(
+                "purce_rng_state",
+                f"{_sanitize_name(module_name)}_purce_rng_state",
+            )
+
         reduction_lines = []
         for r in node.reductions:
             orig = f" (from: {r.original})" if r.original else ""
@@ -1406,12 +1422,21 @@ class C99Generator:
             "#include <math.h>",
             "#include <string.h>",
             "",
-            "/* Shared LCG state for numpy.random semantics */"
-            if node.algorithm in ("alloc_random", "array_permutation", "noop_seed")
-            else "",
-            "static uint32_t purce_rng_state = 12345u;"
-            if node.algorithm in ("alloc_random", "array_permutation", "noop_seed")
-            else "",
+        ]
+        if rng_state_role is not None:
+            rng_name = f"{_sanitize_name(module_name)}_purce_rng_state"
+            lines.extend([
+                "/* Shared LCG state for numpy.random semantics — one definition per",
+                f" * module ({rng_name}), shared across this module's generated kernels.",
+                " * Compile the module's generated files together when linking.",
+                " */",
+                f"uint32_t {rng_name} = 12345u;"
+                if rng_state_role == "define"
+                else f"extern uint32_t {rng_name};",
+            ])
+            lines.append("")
+
+        lines.extend([
             "/* ───────────────────────────────────────────────────────────────────────────",
             f" * SEMANTIC UNIT:    {node.node_id}",
             f" * ORIGIN SYMBOL:    {node.origin_symbol}",
@@ -1438,7 +1463,7 @@ class C99Generator:
             f"{body}",
             "}",
             "",
-        ]
+        ])
 
         return "\n".join(lines)
 
