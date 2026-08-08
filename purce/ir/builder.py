@@ -137,6 +137,18 @@ NUMPY_DTYPE_MAP: dict[str, Dtype] = {
     "complex128": Dtype.COMPLEX128,
 }
 
+SCALAR_OUTPUT_CALLS: frozenset[str] = frozenset({
+    "numpy.sum", "numpy.mean", "numpy.max", "numpy.min",
+    "numpy.var", "numpy.prod", "numpy.argmax", "numpy.argmin",
+    "numpy.any", "numpy.all", "numpy.linalg.norm",
+})
+
+SCALAR_OUTPUT_ALGOS: frozenset[str] = frozenset({
+    "reduce_sum", "reduce_mean", "reduce_max", "reduce_min",
+    "reduce_var", "reduce_prod", "reduce_argmax", "reduce_argmin",
+    "reduce_any", "reduce_all", "linalg_norm",
+})
+
 
 def _make_node_id(prefix: str, symbol: str) -> str:
     base = f"{prefix}.{symbol}"
@@ -218,6 +230,77 @@ class MathIRBuilder:
         self.graph = MathIRGraph()
         self._diagnostics: list[dict] = []
         self._node_counter = 0
+        self._scalar_names: set[str] = set()
+
+    def _shape_of(self, name: str) -> str:
+        """Resolve the shape of a known local name (scalar or array)."""
+        return "scalar" if name in self._scalar_names else "array"
+
+    def _collect_scalar_locals(self, func: ast.FunctionDef) -> None:
+        """Pre-pass: mark locals that are provably scalar-shaped.
+
+        Sources: scalar-annotated params, constant assignments, .shape/.size/.ndim
+        accesses, reduce-family calls, and fixed-point propagation through
+        scalar-only expressions.
+        """
+        scalars: set[str] = set()
+        for arg in func.args.args:
+            if isinstance(arg.annotation, ast.Name) and arg.annotation.id in _PY_BUILTIN_TYPE_NAMES:
+                scalars.add(arg.arg)
+            defaults_offset = len(func.args.args) - len(func.args.defaults)
+            default_idx = func.args.args.index(arg) - defaults_offset
+            if default_idx >= 0 and default_idx < len(func.args.defaults):
+                def_val = func.args.defaults[default_idx]
+                if isinstance(def_val, ast.Constant) and isinstance(def_val.value, (int, float)):
+                    scalars.add(arg.arg)
+
+        changed = True
+        while changed:
+            changed = False
+            for stmt in func.body:
+                if not isinstance(stmt, ast.Assign) or len(stmt.targets) != 1:
+                    continue
+                target = stmt.targets[0]
+                if not isinstance(target, ast.Name):
+                    continue
+                if target.id in scalars:
+                    continue
+                value = stmt.value
+                if isinstance(value, ast.Constant) and isinstance(value.value, (int, float)):
+                    scalars.add(target.id)
+                    changed = True
+                elif isinstance(value, ast.Attribute) and value.attr in ("shape", "size", "ndim"):
+                    scalars.add(target.id)
+                    changed = True
+                elif isinstance(value, ast.Subscript) and isinstance(value.value, ast.Attribute) \
+                        and value.value.attr in ("shape", "size"):
+                    scalars.add(target.id)
+                    changed = True
+                elif isinstance(value, ast.Call):
+                    call_target = self._resolve_call_target(value)
+                    if call_target.startswith("np."):
+                        call_target = "numpy." + call_target[3:]
+                    if call_target in SCALAR_OUTPUT_CALLS:
+                        scalars.add(target.id)
+                        changed = True
+                    else:
+                        leaf_names = {
+                            node.id for node in ast.walk(value)
+                            if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+                        }
+                        if leaf_names and leaf_names <= scalars:
+                            scalars.add(target.id)
+                            changed = True
+                else:
+                    leaf_names = {
+                        node.id for node in ast.walk(value)
+                        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load)
+                    }
+                    if leaf_names and leaf_names <= scalars:
+                        scalars.add(target.id)
+                        changed = True
+
+        self._scalar_names |= scalars
 
     @property
     def diagnostics(self) -> list[dict]:
@@ -234,11 +317,74 @@ class MathIRBuilder:
                 self._process_function(node, module_name, local_funcs)
         return self.graph
 
+    def _register_literal_elts(self, arg_node: ast.expr, inputs: list[tuple[str, Dtype, str]],
+                               existing_names: set[str], scalar_constants: dict[str, float],
+                               constant_assignments: dict[str, float],
+                               scalar_counter: int) -> int:
+        """Register literal elements of a List/Tuple call argument in order.
+
+        Constants become scalar constants; named elements become inputs with
+        their known shape. Nested lists are flattened in order.
+        """
+        for elt in arg_node.elts:
+            if isinstance(elt, (ast.List, ast.Tuple)):
+                scalar_counter = self._register_literal_elts(
+                    elt, inputs, existing_names, scalar_constants,
+                    constant_assignments, scalar_counter,
+                )
+            elif isinstance(elt, ast.Constant) and isinstance(elt.value, (int, float)):
+                const_val = float(elt.value)
+                const_name = f"_const_{scalar_counter}"
+                scalar_counter += 1
+                if const_name not in existing_names:
+                    dt = Dtype.FLOAT64 if isinstance(elt.value, float) else Dtype.INT64
+                    inputs.append((const_name, dt, "scalar"))
+                    existing_names.add(const_name)
+                    scalar_constants[const_name] = const_val
+            elif isinstance(elt, ast.Name) and elt.id in constant_assignments:
+                const_val = constant_assignments[elt.id]
+                const_name = f"_const_{scalar_counter}"
+                scalar_counter += 1
+                if const_name not in existing_names:
+                    dt = Dtype.FLOAT64 if isinstance(const_val, float) else Dtype.INT64
+                    inputs.append((const_name, dt, "scalar"))
+                    existing_names.add(const_name)
+                    scalar_constants[const_name] = const_val
+            elif isinstance(elt, ast.Name):
+                if elt.id not in existing_names:
+                    inputs.append((elt.id, Dtype.FLOAT64, self._shape_of(elt.id)))
+                    existing_names.add(elt.id)
+        return scalar_counter
+
+    def _algorithm_for(self, target: str, call_node: ast.Call | None = None) -> str:
+        """Map a numpy call target to an algorithm, with shape-driven refinements."""
+        algo = NUMPY_OP_MAP.get(target, "unknown")
+        if call_node is not None and target == "numpy.diag" and call_node.args:
+            if isinstance(call_node.args[0], (ast.List, ast.Tuple)):
+                algo = "matrix_diag_from"
+        return algo
+
+    def _output_shape_for(self, algo: str,
+                          inputs: list[tuple[str, Dtype, str]]) -> str:
+        """Shape of a kernel output: reduce* and scalar-elementwise are scalar.
+
+        Allocation/construction kernels (alloc_*, array_*, matrix_*,
+        linalg_*) always produce arrays even when every input is scalar.
+        """
+        if algo in SCALAR_OUTPUT_ALGOS:
+            return "scalar"
+        if algo.startswith("element_") and all(s == "scalar" for _, _, s in inputs):
+            return "scalar"
+        return "array"
+
     def _process_function(self, func: ast.FunctionDef, module_name: str,
                           local_funcs: dict[str, ast.FunctionDef] | None = None) -> None:
         has_numpy = False
         call_targets: list[str] = []
         effects = [Effect.PURE]
+
+        self._scalar_names.clear()
+        self._collect_scalar_locals(func)
 
         for child in ast.walk(func):
             if isinstance(child, ast.Call):
@@ -299,7 +445,12 @@ class MathIRBuilder:
             if target not in NUMPY_OP_MAP:
                 continue
             for arg_node in child.args:
-                if isinstance(arg_node, ast.Constant) and isinstance(arg_node.value, (int, float)):
+                if isinstance(arg_node, (ast.List, ast.Tuple)):
+                    scalar_counter = self._register_literal_elts(
+                        arg_node, inputs, existing_input_names,
+                        scalar_constants, constant_assignments, scalar_counter,
+                    )
+                elif isinstance(arg_node, ast.Constant) and isinstance(arg_node.value, (int, float)):
                     const_val = float(arg_node.value)
                     const_name = f"_const_{scalar_counter}"
                     scalar_counter += 1
@@ -353,8 +504,17 @@ class MathIRBuilder:
         nested_deps: list[str] = []
         reductions: list[ReductionEntry] = []
 
-        for target in call_targets:
-            algo = NUMPY_OP_MAP.get(target, "unknown")
+        for child in ast.walk(func):
+            if not isinstance(child, ast.Call):
+                continue
+            if not isinstance(child.func, ast.Attribute):
+                continue
+            target = _get_qualified_name(child.func)
+            if target.startswith("np."):
+                target = "numpy." + target[3:]
+            if target not in NUMPY_OP_MAP:
+                continue
+            algo = self._algorithm_for(target, child)
             if algo not in algorithms:
                 algorithms.append(algo)
             reductions.append(ReductionEntry(
@@ -444,7 +604,7 @@ class MathIRBuilder:
             for name, dt, shape in func_inputs:
                 if name == arg_node.id:
                     return (name, dt, shape)
-            return (arg_node.id, Dtype.FLOAT64, "array")
+            return (arg_node.id, Dtype.FLOAT64, self._shape_of(arg_node.id))
 
         if isinstance(arg_node, ast.Constant) and isinstance(arg_node.value, (int, float, complex)):
             const_val = float(arg_node.value.real) if isinstance(arg_node.value, complex) else float(arg_node.value)
@@ -457,9 +617,9 @@ class MathIRBuilder:
 
         if isinstance(arg_node, ast.Attribute) and arg_node.attr == "T":
             if isinstance(arg_node.value, ast.Name) and arg_node.value.id in existing_names:
-                return (arg_node.value.id, Dtype.FLOAT64, "array")
+                return (arg_node.value.id, Dtype.FLOAT64, self._shape_of(arg_node.value.id))
             if isinstance(arg_node.value, ast.Name) and arg_node.value.id in intermediates:
-                return (intermediates[arg_node.value.id], Dtype.FLOAT64, "array")
+                return (intermediates[arg_node.value.id], Dtype.FLOAT64, self._shape_of(arg_node.value.id))
 
         if isinstance(arg_node, ast.Attribute):
             full_name = ""
@@ -496,7 +656,7 @@ class MathIRBuilder:
                 target = "numpy." + target[3:]
             if target in intermediates:
                 inter_name = intermediates[target]
-                return (inter_name, Dtype.FLOAT64, "array")
+                return (inter_name, Dtype.FLOAT64, self._shape_of(inter_name))
 
         if isinstance(arg_node, ast.UnaryOp) and isinstance(arg_node.op, ast.USub):
             if isinstance(arg_node.operand, ast.Constant) and isinstance(arg_node.operand.value, (int, float, complex)):
@@ -516,7 +676,7 @@ class MathIRBuilder:
 
         if isinstance(arg_node, ast.Subscript):
             if isinstance(arg_node.value, ast.Name) and arg_node.value.id in existing_names:
-                return (arg_node.value.id, Dtype.FLOAT64, "array")
+                return (arg_node.value.id, Dtype.FLOAT64, self._shape_of(arg_node.value.id))
 
         if isinstance(arg_node, ast.Name):
             if arg_node.id in _PY_BUILTIN_TYPE_NAMES:
@@ -591,7 +751,7 @@ class MathIRBuilder:
         processed_call_ids: set[int] = set()
 
         for idx, (target, call_node) in enumerate(operations):
-            algo = NUMPY_OP_MAP.get(target, "unknown")
+            algo = self._algorithm_for(target, call_node)
             is_last = (idx == len(operations) - 1)
             processed_call_ids.add(id(call_node))
 
@@ -630,7 +790,7 @@ class MathIRBuilder:
                                 last_inter = intermediates[inter_key]
                                 break
                         if last_inter:
-                            resolved = (last_inter, Dtype.FLOAT64, "array")
+                            resolved = (last_inter, Dtype.FLOAT64, self._shape_of(last_inter))
                         else:
                             resolved = self._resolve_arg_to_name(
                                 arg, func_inputs, scalar_constants, intermediates, existing_names,
@@ -653,7 +813,10 @@ class MathIRBuilder:
                 node_outputs = list(func_outputs)
             else:
                 inter_name = f"_inter_{func.name}_{idx}"
-                node_outputs = [(inter_name, Dtype.FLOAT64, "array")]
+                out_shape = self._output_shape_for(algo, node_inputs)
+                node_outputs = [(inter_name, Dtype.FLOAT64, out_shape)]
+                if out_shape == "scalar":
+                    self._scalar_names.add(inter_name)
                 intermediates[target] = inter_name
 
             inter_key = f"{target}_{idx}"
@@ -731,6 +894,10 @@ class MathIRBuilder:
                             target = "numpy." + target[3:]
                         if target in NUMPY_OP_MAP:
                             numpy_calls_in_return += 1
+        for stmt in func.body:
+            if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+                if self._resolve_call_target(stmt.value) == "numpy.random.seed":
+                    return True
         return numpy_calls_in_assignments > 0 and (numpy_calls_in_assignments + numpy_calls_in_return) > 1
 
     def _resolve_call_target(self, call_node: ast.Call) -> str:
@@ -802,9 +969,9 @@ class MathIRBuilder:
                         return (name, dt, fi_shape)
                 if name in scalar_constants:
                     return (name, dt, "scalar")
-                return (name, dt, "array")
+                return (name, dt, self._shape_of(name))
             if expr.id in intermediates:
-                return (intermediates[expr.id], Dtype.FLOAT64, "array")
+                return (intermediates[expr.id], Dtype.FLOAT64, self._shape_of(expr.id))
             if constant_assignments and expr.id in constant_assignments:
                 const_val = constant_assignments[expr.id]
                 const_name = f"_const_{len(scalar_constants)}"
@@ -818,7 +985,7 @@ class MathIRBuilder:
                     scalar_constants[const_name] = 0.0
                     existing_names.add(const_name)
                 return (const_name, Dtype.FLOAT64, "scalar")
-            return (expr.id, Dtype.FLOAT64, "array")
+            return (expr.id, Dtype.FLOAT64, self._shape_of(expr.id))
 
         if isinstance(expr, ast.UnaryOp) and isinstance(expr.op, ast.USub):
             inner = self._decompose_expr(
@@ -864,7 +1031,7 @@ class MathIRBuilder:
             self.graph.entry_points.append(node_id)
             all_dep_ids.append(node_id)
             intermediates[f"_neg_{node_idx[0]}"] = inter_name
-            return (inter_name, Dtype.FLOAT64, "array")
+            return (inter_name, Dtype.FLOAT64, self._shape_of(inter_name))
 
         if isinstance(expr, ast.BinOp):
             left = self._decompose_expr(
@@ -886,7 +1053,10 @@ class MathIRBuilder:
                 algo = binop_map[type(expr.op)]
                 node_inputs = [left, right]
                 inter_name = f"_inter_expr_{node_idx[0]}"
-                node_outputs = [(inter_name, Dtype.FLOAT64, "array")]
+                out_shape = self._output_shape_for(algo, node_inputs)
+                node_outputs = [(inter_name, Dtype.FLOAT64, out_shape)]
+                if out_shape == "scalar":
+                    self._scalar_names.add(inter_name)
                 node_idx[0] += 1
 
                 self._node_counter += 1
@@ -924,7 +1094,7 @@ class MathIRBuilder:
                 all_dep_ids.append(node_id)
                 intermediates[f"_binop_{node_idx[0]}"] = inter_name
                 symbol_table[f"_binop_{node_idx[0]}"] = (inter_name, Dtype.FLOAT64)
-                return (inter_name, Dtype.FLOAT64, "array")
+                return (inter_name, Dtype.FLOAT64, self._shape_of(inter_name))
             return left
 
         if isinstance(expr, (ast.List, ast.Tuple)):
@@ -945,8 +1115,8 @@ class MathIRBuilder:
             call_target = self._resolve_call_target(expr)
             if call_target.startswith("np."):
                 call_target = "numpy." + call_target[3:]
-            if call_target in NUMPY_OP_MAP:
-                algo = NUMPY_OP_MAP[call_target]
+            algo = self._algorithm_for(call_target, expr)
+            if algo is not None and algo != "unknown":
                 node_inputs = []
                 for arg in expr.args:
                     if isinstance(arg, ast.List):
@@ -980,7 +1150,10 @@ class MathIRBuilder:
                         node_inputs.append((const_name, Dtype.FLOAT64, "scalar"))
 
                 inter_name = f"_inter_expr_{node_idx[0]}"
-                node_outputs = [(inter_name, Dtype.FLOAT64, "array")]
+                out_shape = self._output_shape_for(algo, node_inputs)
+                node_outputs = [(inter_name, Dtype.FLOAT64, out_shape)]
+                if out_shape == "scalar":
+                    self._scalar_names.add(inter_name)
                 node_idx[0] += 1
 
                 self._node_counter += 1
@@ -1040,7 +1213,7 @@ class MathIRBuilder:
                 return (name, dt, "array")
             if isinstance(expr.value, ast.Name) and expr.value.id in intermediates:
                 inter_name = intermediates[expr.value.id]
-                return (inter_name, Dtype.FLOAT64, "array")
+                return (inter_name, Dtype.FLOAT64, self._shape_of(inter_name))
             if isinstance(expr.value, ast.Call):
                 inner = self._decompose_expr(
                     expr.value, func_inputs, scalar_constants, intermediates,
@@ -1048,7 +1221,8 @@ class MathIRBuilder:
                     module_name, func_name, origin_file, all_dep_ids, node_idx,
                 )
                 if isinstance(inner, tuple) and not inner[0].startswith("_unresolved_"):
-                    return (inner[0], inner[1], "array")
+                    inner_shape = inner[2] if len(inner) > 2 else "array"
+                    return (inner[0], inner[1], inner_shape)
 
         if isinstance(expr, ast.Attribute):
             full_name = ""
@@ -1093,7 +1267,7 @@ class MathIRBuilder:
                 name, dt = symbol_table[base.id]
                 return (name, dt, "array")
             if isinstance(base, ast.Name) and base.id in intermediates:
-                return (intermediates[base.id], Dtype.FLOAT64, "array")
+                return (intermediates[base.id], Dtype.FLOAT64, self._shape_of(base.id))
 
         return self._resolve_arg_for_full_body(
             expr, func_inputs, scalar_constants, intermediates,
@@ -1514,6 +1688,85 @@ class MathIRBuilder:
                             symbol_table[var_name] = (f"_inter_{var_name}", Dtype.FLOAT64)
                 continue
 
+            if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Call):
+                expr_target = self._resolve_call_target(stmt.value)
+                if expr_target.startswith("np."):
+                    expr_target = "numpy." + expr_target[3:]
+                if expr_target in NUMPY_OP_MAP:
+                    expr_id = id(stmt.value)
+                    if expr_id in processed_calls:
+                        continue
+                    processed_calls.add(expr_id)
+                    algo = self._algorithm_for(expr_target, stmt.value)
+                    node_idx_ref = [node_idx]
+                    node_inputs = []
+                    for arg in stmt.value.args:
+                        if isinstance(arg, (ast.List, ast.Tuple)):
+                            for elt in arg.elts:
+                                r = self._decompose_expr(
+                                    elt, func_inputs, scalar_constants, intermediates,
+                                    symbol_table, existing_names, constant_assignments,
+                                    module_name, func.name, origin_file, all_dep_ids,
+                                    node_idx_ref,
+                                )
+                                if isinstance(r, list):
+                                    node_inputs.extend(r)
+                                else:
+                                    node_inputs.append(r)
+                        else:
+                            r = self._decompose_expr(
+                                arg, func_inputs, scalar_constants, intermediates,
+                                symbol_table, existing_names, constant_assignments,
+                                module_name, func.name, origin_file, all_dep_ids,
+                                node_idx_ref,
+                            )
+                            if isinstance(r, list):
+                                node_inputs.extend(r)
+                            else:
+                                node_inputs.append(r)
+                    for kw in stmt.value.keywords:
+                        if isinstance(kw.value, ast.Constant):
+                            const_val = float(kw.value.value)
+                            const_name = f"_const_{len(scalar_constants)}"
+                            if const_name not in existing_names:
+                                scalar_constants[const_name] = const_val
+                                existing_names.add(const_name)
+                            node_inputs.append((const_name, Dtype.FLOAT64, "scalar"))
+                    inter_name = f"_inter_expr_{node_idx}"
+                    node_idx += 1
+                    out_shape = self._output_shape_for(algo, node_inputs)
+                    node_outputs = [(inter_name, Dtype.FLOAT64, out_shape)]
+                    if out_shape == "scalar":
+                        self._scalar_names.add(inter_name)
+                    sig_parts = [f"{dt.name.lower()} {n}" for n, dt, _ in node_inputs]
+                    origin_sig = f"{' -> '.join(sig_parts)} -> {out_shape}"
+                    self._node_counter += 1
+                    node_id = _make_node_id(module_name, f"{func.name}_expr_{node_idx}")
+                    self.graph.add_node(MathIRNode(
+                        node_id=node_id,
+                        origin_symbol=f"{module_name}.{func.name}",
+                        origin_file=origin_file,
+                        origin_line=stmt.lineno,
+                        origin_commit=self.origin_commit,
+                        origin_signature=origin_sig,
+                        math_intent=f"Side-effect call {expr_target} as {algo}",
+                        inputs=node_inputs,
+                        outputs=node_outputs,
+                        effects=[Effect.ALLOC] if algo == "noop_seed" else [Effect.PURE],
+                        algorithm=algo,
+                        reductions=[ReductionEntry(rule="numpy_op_extraction",
+                                                   description=f"Extracted {expr_target} as {algo} kernel",
+                                                   original=expr_target)],
+                        nested_deps=list(all_dep_ids),
+                        stack_usage=256, heap_usage=None,
+                        reentrant=algo != "noop_seed",
+                        dep_kind=DepKind.MATH_KERNEL,
+                        scalar_constants=dict(scalar_constants),
+                    ))
+                    self.graph.entry_points.append(node_id)
+                    all_dep_ids.append(node_id)
+                continue
+
             if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
                 target_name = stmt.targets[0].id if isinstance(stmt.targets[0], ast.Name) else None
                 if target_name is None:
@@ -1576,20 +1829,16 @@ class MathIRBuilder:
                     }
                     if type(stmt.value.op) in binop_map:
                         algo = binop_map[type(stmt.value.op)]
-                        if left[2] == "scalar" and right[2] == "scalar":
-                            const_name = f"_const_{len(scalar_constants)}"
-                            if const_name not in existing_names:
-                                scalar_constants[const_name] = 0.0
-                                existing_names.add(const_name)
-                            symbol_table[target_name] = (const_name, Dtype.INT64)
-                            continue
                         node_inputs = [left, right]
                         inter_name = f"_inter_{target_name}"
-                        node_outputs = [(inter_name, Dtype.FLOAT64, "array")]
+                        out_shape = self._output_shape_for(algo, node_inputs)
+                        node_outputs = [(inter_name, Dtype.FLOAT64, out_shape)]
+                        if out_shape == "scalar":
+                            self._scalar_names.add(inter_name)
                         self._node_counter += 1
                         nid = _make_node_id(module_name, f"{func.name}_{target_name}")
                         sig_parts = [f"{dt.name.lower()} {n}" for n, dt, _ in node_inputs]
-                        origin_sig = f"{' -> '.join(sig_parts)} -> array"
+                        origin_sig = f"{' -> '.join(sig_parts)} -> {out_shape}"
                         self.graph.add_node(MathIRNode(
                             node_id=nid,
                             origin_symbol=f"{module_name}.{func.name}",
@@ -1624,7 +1873,7 @@ class MathIRBuilder:
                             continue
                         processed_calls.add(stmt_id)
 
-                        algo = NUMPY_OP_MAP[call_target]
+                        algo = self._algorithm_for(call_target, stmt.value)
 
                         node_idx_ref = [node_idx]
                         node_inputs: list[tuple[str, Dtype, str]] = []
@@ -1662,7 +1911,10 @@ class MathIRBuilder:
                                 node_inputs.append((const_name, Dtype.FLOAT64, "scalar"))
 
                         inter_name = f"_inter_{target_name}"
-                        node_outputs = [(inter_name, Dtype.FLOAT64, "array")]
+                        out_shape = self._output_shape_for(algo, node_inputs)
+                        node_outputs = [(inter_name, Dtype.FLOAT64, out_shape)]
+                        if out_shape == "scalar":
+                            self._scalar_names.add(inter_name)
                         intermediates[call_target] = inter_name
                         intermediates[f"{call_target}_{node_idx}"] = inter_name
                         symbol_table[target_name] = (inter_name, Dtype.FLOAT64)
@@ -1744,7 +1996,7 @@ class MathIRBuilder:
                 if call_target.startswith("np."):
                     call_target = "numpy." + call_target[3:]
                 if call_target in NUMPY_OP_MAP:
-                    algo = NUMPY_OP_MAP[call_target]
+                    algo = self._algorithm_for(call_target, return_stmt.value)
 
                     node_idx_ref = [node_idx]
                     node_inputs: list[tuple[str, Dtype, str]] = []
@@ -1839,15 +2091,15 @@ class MathIRBuilder:
                         return (name, dt, fi_shape)
                 if name in scalar_constants:
                     return (name, dt, "scalar")
-                return (name, dt, "array")
+                return (name, dt, self._shape_of(name))
             if arg_node.id in existing_names:
                 for name, dt, shape in func_inputs:
                     if name == arg_node.id:
                         return (name, dt, shape)
-                return (arg_node.id, Dtype.FLOAT64, "array")
+                return (arg_node.id, Dtype.FLOAT64, self._shape_of(arg_node.id))
             if arg_node.id in intermediates:
                 inter_name = intermediates[arg_node.id]
-                return (inter_name, Dtype.FLOAT64, "array")
+                return (inter_name, Dtype.FLOAT64, self._shape_of(inter_name))
             if constant_assignments and arg_node.id in constant_assignments:
                 const_val = constant_assignments[arg_node.id]
                 const_name = f"_const_{len(scalar_constants)}"
@@ -1875,7 +2127,7 @@ class MathIRBuilder:
             call_target = self._resolve_call_target(arg_node)
             if call_target in intermediates:
                 inter_name = intermediates[call_target]
-                return (inter_name, Dtype.FLOAT64, "array")
+                return (inter_name, Dtype.FLOAT64, self._shape_of(inter_name))
             if call_target in ("numpy.transpose", "numpy.T"):
                 if arg_node.args:
                     inner = arg_node.args[0]
@@ -1919,7 +2171,7 @@ class MathIRBuilder:
                 return (name, dt, "array")
             if isinstance(arg_node.value, ast.Name) and arg_node.value.id in intermediates:
                 inter_name = intermediates[arg_node.value.id]
-                return (inter_name, Dtype.FLOAT64, "array")
+                return (inter_name, Dtype.FLOAT64, self._shape_of(inter_name))
 
         if isinstance(arg_node, ast.Attribute):
             full_name = ""
@@ -1979,7 +2231,7 @@ class MathIRBuilder:
                     name, dt = symbol_table[arg_node.value.id]
                     return (name, dt, "array")
                 if arg_node.value.id in intermediates:
-                    return (intermediates[arg_node.value.id], Dtype.FLOAT64, "array")
+                    return (intermediates[arg_node.value.id], Dtype.FLOAT64, self._shape_of(arg_node.value.id))
 
         if isinstance(arg_node, ast.UnaryOp) and isinstance(arg_node.op, ast.USub):
             if isinstance(arg_node.operand, ast.Constant) and isinstance(arg_node.operand.value, (int, float, complex)):

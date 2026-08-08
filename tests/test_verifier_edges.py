@@ -484,3 +484,139 @@ class TestPipelineVerificationSmoke:
         c_files = [f for f in gen.files if f.file_type == "c"]
         assert c_files, "no C emitted for np.add pipeline"
         assert any(n.algorithm == "element_add" for n in slice_result.graph.nodes.values())
+
+
+class TestSemanticSoundnessFixes:
+    """Regression tests for the five known semantic-soundness defects.
+
+    Each test inspects the generated C to prove the fix is actually emitted,
+    not just that the pipeline runs.
+    """
+
+    @staticmethod
+    def _generate(source: str, module_name: str = "fix_mod"):
+        builder = MathIRBuilder(origin_file=module_name)
+        graph = builder.build_from_source(source, module=module_name)
+        generator = C99Generator(target_profile="generic-c99")
+        gen_result = generator.generate(graph, module_name=module_name)
+        return graph, gen_result
+
+    @staticmethod
+    def _c_files(gen_result) -> list:
+        return [f for f in gen_result.files if f.file_type == "c"]
+
+    def test_alloc_eye_zero_fills_before_diagonal(self) -> None:
+        """np.eye must fully zero-fill n*n cells, then set the diagonal."""
+        _, gen = self._generate("import numpy as np\ndef f(n: int):\n    return np.eye(n)")
+        c = self._c_files(gen)[0].content
+        zero_fill = c.index("for (int i = 0; i < n * n; i++)")
+        diag_set = c.index("= 1.0;")
+        assert zero_fill < diag_set
+        assert "result[i] = 0.0;" in c
+
+    def test_array_literal_emits_element_assignments(self) -> None:
+        """np.array([1.0, 2.0, 3.0]) must copy its literal elements into out."""
+        _, gen = self._generate("import numpy as np\ndef f():\n    return np.array([1.0, 2.0, 3.0])")
+        c = self._c_files(gen)[0].content
+        assert "result[0] = 1;" in c
+        assert "result[1] = 2;" in c
+        assert "result[2] = 3;" in c
+
+    def test_matrix_diag_from_constructs_diagonal_matrix(self) -> None:
+        """np.diag([...]) must build an n x n diagonal matrix, zero-filled first."""
+        graph, gen = self._generate(
+            "import numpy as np\ndef f():\n    return np.diag([1.0, 2.0, 3.0])"
+        )
+        node = next(n for n in graph.nodes.values())
+        assert node.algorithm == "matrix_diag_from"
+        c = self._c_files(gen)[0].content
+        zero_fill = c.index("for (int i = 0; i < n * n; i++)")
+        diag_set = c.index("result[1 * n + 1] = 2;")
+        assert zero_fill < diag_set
+        assert "result[0 * n + 0] = 1;" in c
+
+    def test_information_gain_scalar_ops_are_not_indexed(self) -> None:
+        """Scalar intermediates must not be array-indexed in generated kernels."""
+        source = (
+            "import numpy as np\n"
+            "def information_gain(labels, mask):\n"
+            "    n_total = labels.shape[0]\n"
+            "    n_left = np.sum(mask)\n"
+            "    n_right = np.subtract(n_total, n_left)\n"
+            "    w_left = np.divide(n_left, n_total)\n"
+            "    return np.add(n_right, w_left)\n"
+        )
+        graph, gen = self._generate(source)
+        for node in graph.nodes.values():
+            if node.algorithm in ("element_sub", "element_div", "element_mul"):
+                assert all(s == "scalar" for _, _, s in node.inputs)
+        for f in gen.files:
+            if f.file_type != "c":
+                continue
+            c = f.content
+            for scalar_name in ("n_total", "_inter_n_left", "_inter_n_right"):
+                assert f"{scalar_name}[i]" not in c
+                assert f"{scalar_name}[0]" not in c
+
+    def test_random_seed_wires_shared_rng_state(self) -> None:
+        """np.random.seed(s) must feed the same LCG state the randn kernel uses."""
+        source = (
+            "import numpy as np\n"
+            "def f(x, s: float):\n"
+            "    np.random.seed(s)\n"
+            "    return np.random.randn(x)\n"
+        )
+        graph, gen = self._generate(source)
+        algos = {n.algorithm for n in graph.nodes.values()}
+        assert {"noop_seed", "alloc_random"} <= algos
+        seed_file = next(f for f in gen.files if f.file_type == "c"
+                         and "purce_rng_state = (uint32_t)" in f.content)
+        rand_file = next(f for f in gen.files if f.file_type == "c"
+                         and "purce_rng_state * 1103515245u" in f.content)
+        assert "purce_rng_state = (uint32_t)s;" in seed_file.content
+        assert "static uint32_t purce_rng_state" in seed_file.content
+        assert "static uint32_t purce_rng_state" in rand_file.content
+
+
+@RequiresGcc
+class TestGeneratedKernelsCompileClean:
+    """Every generated kernel from the fixed code paths must pass gcc -Wall -Werror."""
+
+    _CASES = {
+        "eye": "import numpy as np\ndef f(n: int):\n    return np.eye(n)",
+        "diag_vec": "import numpy as np\ndef f(x):\n    return np.diag(x)",
+        "diag_lit": "import numpy as np\ndef f():\n    return np.diag([1.0, 2.0, 3.0])",
+        "array_lit": "import numpy as np\ndef f():\n    return np.array([1.0, 2.0, 3.0])",
+        "array_mixed": "import numpy as np\ndef f(x, y):\n    return np.array([x, y, 2.5])",
+        "seed_rng": (
+            "import numpy as np\n"
+            "def f(x, s: float):\n"
+            "    np.random.seed(s)\n"
+            "    return np.random.randn(x)"
+        ),
+        "info_gain": (
+            "import numpy as np\n"
+            "def information_gain(labels, mask):\n"
+            "    n_total = labels.shape[0]\n"
+            "    n_left = np.sum(mask)\n"
+            "    n_right = np.subtract(n_total, n_left)\n"
+            "    return n_right"
+        ),
+    }
+
+    def test_all_generated_c_files_compile(self, tmp_path) -> None:
+        import subprocess
+
+        for name, source in self._CASES.items():
+            _, gen = TestSemanticSoundnessFixes._generate(source, module_name=f"fix_{name}")
+            for cf in (f for f in gen.files if f.file_type == "c"):
+                path = tmp_path / f"{name}_{cf.path}"
+                path.write_text(cf.content)
+                result = subprocess.run(
+                    ["gcc", "-std=c99", "-Wall", "-Werror", "-fsyntax-only", "-x", "c", str(path)],
+                    capture_output=True,
+                    text=True,
+                )
+                assert result.returncode == 0, (
+                    f"{name} :: {cf.path} failed:\n{result.stderr}"
+                )

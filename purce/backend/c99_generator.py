@@ -94,18 +94,19 @@ BODY_PARAM_MAP: dict[str, list[tuple[str, str]]] = {
     "transpose": [("x", "input_0"), ("out", "output_0"), ("rows", "dim_m"), ("cols", "dim_n")],
     "outer_product": [("A", "input_0"), ("B", "input_1"), ("C", "output_0"), ("m", "dim_m"), ("n", "dim_n")],
     "matrix_diag": [("x", "input_0"), ("out", "output_0"), ("n", "dim")],
+    "matrix_diag_from": [("x", "input_0"), ("out", "output_0"), ("n", "dim")],
     "matrix_tril": [("x", "input_0"), ("out", "output_0"), ("n", "dim")],
     "matrix_triu": [("x", "input_0"), ("out", "output_0"), ("n", "dim")],
     "array_concat": [("A", "input_0"), ("B", "input_1"), ("C", "output_0"), ("n_a", "dim_m"), ("n_b", "dim_n")],
     "array_take": [("x", "input_0"), ("idx", "input_1"), ("out", "output_0"), ("k", "length")],
     "array_argsort": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
     "array_permutation": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
-    "array_literal": [("out", "output_0"), ("n", "length")],
+    "array_literal": [("out", "output_0"), ("x", "input_0"), ("n", "length")],
     "array_reshape": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
     "array_squeeze": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
     "array_expand_dims": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
     "array_flatten": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
-    "noop_seed": [],
+    "noop_seed": [("seed", "input_0")],
     "fft": [("real", "input_0"), ("imag", "input_1"), ("out_real", "output_0"), ("out_imag", "output_1"), ("n", "length"), ("log_n", "log_length")],
     "ifft": [("real", "input_0"), ("imag", "input_1"), ("out_real", "output_0"), ("out_imag", "output_1"), ("n", "length"), ("log_n", "log_length")],
     "reduce_var": [("x", "input_0"), ("n", "length"), ("result_ptr", "output_0")],
@@ -502,8 +503,8 @@ MATH_KERNEL_BODIES: dict[str, str] = {
         out[i] = 1.0;
     }""",
     "alloc_eye": """\
-    /* Allocate identity matrix: O(n) instead of O(n^2) */
-    for (int i = 0; i < n; i++) {
+    /* Identity matrix: zero-fill then set diagonal */
+    for (int i = 0; i < n * n; i++) {
         out[i] = 0.0;
     }
     for (int i = 0; i < n; i++) {
@@ -656,6 +657,14 @@ MATH_KERNEL_BODIES: dict[str, str] = {
     for (int i = 0; i < n; i++) {
         out[i] = x[i * n + i];
     }""",
+    "matrix_diag_from": """\
+    /* Construct diagonal matrix from vector: out[i * n + i] = x[i] */
+    for (int i = 0; i < n * n; i++) {
+        out[i] = 0.0;
+    }
+    for (int i = 0; i < n; i++) {
+        out[i * n + i] = x[i];
+    }""",
     "matrix_tril": """\
     /* Lower triangular: out[i * n + j] = (j <= i) ? x[i * n + j] : 0 */
     for (int i = 0; i < n; i++) {
@@ -707,14 +716,14 @@ MATH_KERNEL_BODIES: dict[str, str] = {
         out[i] = 1.0;
     }""",
     "alloc_random": """\
-    /* Allocate random: out[i] = pseudo-random [0, 1) using simple LCG */
-    uint32_t state = 12345u;
+    /* Allocate random: out[i] = pseudo-random [0, 1) using shared LCG state */
     for (int i = 0; i < n; i++) {
-        state = state * 1103515245u + 12345u;
-        out[i] = (double)((state >> 16) & 0x7FFF) / 32768.0;
+        purce_rng_state = purce_rng_state * 1103515245u + 12345u;
+        out[i] = (double)((purce_rng_state >> 16) & 0x7FFF) / 32768.0;
     }""",
     "noop_seed": """\
-    /* Random seed (no-op in generated code) */""",
+    /* Seed the shared LCG state (numpy.random.seed) */
+    purce_rng_state = (uint32_t)seed;""",
     "array_concat": """\
     /* Concatenate A[0..n_a-1] and B[0..n_b-1] into C */
     for (int i = 0; i < n_a; i++) {
@@ -749,10 +758,9 @@ MATH_KERNEL_BODIES: dict[str, str] = {
     for (int i = 0; i < n; i++) {
         out[i] = x[i];
     }
-    uint32_t state = 42u;
     for (int i = n - 1; i > 0; i--) {
-        state = state * 1103515245u + 12345u;
-        int j = (int)((state >> 16) % (uint32_t)(i + 1));
+        purce_rng_state = purce_rng_state * 1103515245u + 12345u;
+        int j = (int)((purce_rng_state >> 16) % (uint32_t)(i + 1));
         double tmp = out[i];
         out[i] = out[j];
         out[j] = tmp;
@@ -763,7 +771,7 @@ MATH_KERNEL_BODIES: dict[str, str] = {
         out[i] = x[i];
     }""",
     "array_literal": """\
-    /* Array literal: out contains the literal values */
+    /* Array literal: out[i] = literal element i (generated per-input) */
     (void)n;""",
     "array_squeeze": """\
     /* Element-wise copy (squeeze removes length-1 dims) */
@@ -1038,7 +1046,7 @@ def _substitute_body_params(body: str, mapping: dict[str, str], scalar_constants
 
     if scalar_constants:
         for mapped_name, const_val in scalar_constants.items():
-            if const_val == int(const_val):
+            if const_val == int(const_val) and abs(const_val) < 1e15:
                 const_str = str(int(const_val))
             else:
                 const_str = f"{const_val:.6g}"
@@ -1109,6 +1117,7 @@ DERIVED_PARAMS: dict[str, list[str]] = {
     "transpose": ["rows", "cols"],
     "outer_product": ["m", "n"],
     "matrix_diag": ["n"],
+    "matrix_diag_from": ["n"],
     "matrix_tril": ["n"],
     "matrix_triu": ["n"],
     "array_concat": ["n_a", "n_b"],
@@ -1304,7 +1313,7 @@ class C99Generator:
                 'continue', 'break', 'do',
             }
             _mapped_names = set(mapping.values())
-            _loop_vars = {'i', 'j', 'k', 't', 'u', 'bit', 'mask', 'col', 'row', 'half', 'size', 'factor', 'max_row', 'min_val', 'max_val', 'sum', 'a_ik', 'pivot', 'center', 'radius', 'angle', 'cur_w_re', 'cur_w_im', 'new_w_re', 'new_w_im', 'tmp_re', 'tmp_im', 'u_idx', 't_idx', 'aug', 'denom', 'val', 'cond', 'a_val', 'b_val', 's', 'out', 'eigenvalues', 'L', 'idx_val', 'v', 'state', 'key', 'key_idx', 'tmp', 'a_max', 'a_min', 'norm_sum', 'var_mean', 'var_sum', 'd', 'n_out', 'n_a', 'n_b', 'spec', 'h', 'per_iter', 'n_iters', 'all_val', 'any_val', 'prod', 'cum', 'count', 'det', 'lu', 'min_idx', 'max_idx'}
+            _loop_vars = {'i', 'j', 'k', 't', 'u', 'bit', 'mask', 'col', 'row', 'half', 'size', 'factor', 'max_row', 'min_val', 'max_val', 'sum', 'a_ik', 'pivot', 'center', 'radius', 'angle', 'cur_w_re', 'cur_w_im', 'new_w_re', 'new_w_im', 'tmp_re', 'tmp_im', 'u_idx', 't_idx', 'aug', 'denom', 'val', 'cond', 'a_val', 'b_val', 's', 'out', 'eigenvalues', 'L', 'idx_val', 'v', 'state', 'key', 'key_idx', 'tmp', 'a_max', 'a_min', 'norm_sum', 'var_mean', 'var_sum', 'd', 'n_out', 'n_a', 'n_b', 'spec', 'h', 'per_iter', 'n_iters', 'all_val', 'any_val', 'prod', 'cum', 'count', 'det', 'lu', 'min_idx', 'max_idx', 'purce_rng_state'}
             _canon_valid = set(mapping.keys())
             _const_names = set(scalar_constants.keys())
             _unresolved = _body_ids - _c_builtins - _mapped_names - _canon_valid - _loop_vars - _const_names
@@ -1317,6 +1326,57 @@ class C99Generator:
                     if s != "array" and not (isinstance(s, str) and s.startswith("("))
                 }
                 body = _substitute_body_params(raw_body, mapping, scalar_constants, scalar_params)
+
+            def _inline_const(nm: str) -> str | None:
+                if nm in scalar_constants:
+                    v = scalar_constants[nm]
+                    if v == int(v) and abs(v) < 1e15:
+                        return str(int(v))
+                    return f"{v:.6g}"
+                return None
+
+            if node.algorithm == "array_literal" and node.inputs:
+                literal_lines = []
+                out_name = _sanitize_name(mapping.get(node.outputs[0][0], node.outputs[0][0]))
+                for i, (nm, _, shape) in enumerate(node.inputs):
+                    safe = _sanitize_name(nm)
+                    inline = _inline_const(nm)
+                    if shape == "array" or (isinstance(shape, str) and shape.startswith("(")):
+                        literal_lines.append(f"    {out_name}[{i}] = {safe}[0];")
+                    else:
+                        literal_lines.append(f"    {out_name}[{i}] = {inline if inline is not None else safe};")
+                body = "\n".join(literal_lines)
+                body += "\n    (void)n;"
+            elif node.algorithm == "matrix_diag_from" and node.inputs \
+                    and not (len(node.inputs) == 1 and (node.inputs[0][2] == "array"
+                                                        or (isinstance(node.inputs[0][2], str) and node.inputs[0][2].startswith("(")))):
+                diag_lines = []
+                out_name = _sanitize_name(mapping.get(node.outputs[0][0], node.outputs[0][0]))
+                for i, (nm, _, shape) in enumerate(node.inputs):
+                    safe = _sanitize_name(nm)
+                    inline = _inline_const(nm)
+                    if shape == "array" or (isinstance(shape, str) and shape.startswith("(")):
+                        diag_lines.append(f"    {out_name}[{i} * n + {i}] = {safe}[0];")
+                    else:
+                        diag_lines.append(f"    {out_name}[{i} * n + {i}] = {inline if inline is not None else safe};")
+                body = "    for (int i = 0; i < n * n; i++) {\n        " + out_name + "[i] = 0.0;\n    }\n" + "\n".join(diag_lines)
+                body += "\n    (void)n;"
+
+            scalar_in_names = {
+                _sanitize_name(n)
+                for n, _, s in node.inputs
+                if s != "array" and not (isinstance(s, str) and s.startswith("("))
+            }
+            for sin in scalar_in_names:
+                body = re.sub(r'\b' + re.escape(sin) + r'\s*\[i\]', sin, body)
+
+            if node.outputs and node.outputs[0][2] != "array" \
+                    and not (isinstance(node.outputs[0][2], str) and node.outputs[0][2].startswith("(")):
+                out0 = _sanitize_name(node.outputs[0][0])
+                if re.search(r'\b' + re.escape(out0) + r'\s*\[', body):
+                    body = re.sub(r'\b' + re.escape(out0) + r'\s*\[i\]', '*' + out0, body)
+                    body = re.sub(r'for\s*\([^)]*\)\s*\{\s*\n', '', body)
+                    body = re.sub(r'\n\s*\}', '', body, count=1)
 
         reduction_lines = []
         for r in node.reductions:
@@ -1346,6 +1406,12 @@ class C99Generator:
             "#include <math.h>",
             "#include <string.h>",
             "",
+            "/* Shared LCG state for numpy.random semantics */"
+            if node.algorithm in ("alloc_random", "array_permutation", "noop_seed")
+            else "",
+            "static uint32_t purce_rng_state = 12345u;"
+            if node.algorithm in ("alloc_random", "array_permutation", "noop_seed")
+            else "",
             "/* ───────────────────────────────────────────────────────────────────────────",
             f" * SEMANTIC UNIT:    {node.node_id}",
             f" * ORIGIN SYMBOL:    {node.origin_symbol}",
