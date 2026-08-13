@@ -20,3 +20,7 @@ dist/
 _temp/
 *.pyc
 tmp_bench.py
+models.json
+test_output.txt
+out_q31/
+purce/runtime/build/

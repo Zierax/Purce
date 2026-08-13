@@ -220,10 +220,20 @@ class TestResolveArgForFullBody:
             "    return t\n"
         )
         nodes = list(graph.nodes.values())
-        assert len(nodes) == 1
-        assert nodes[0].algorithm == "element_sub"
-        assert nodes[0].inputs[0][0] == "a"
-        assert nodes[0].inputs[1][2] == "scalar"
+        assert len(nodes) == 4
+        transposes = [n for n in nodes if n.algorithm == "transpose"]
+        assert len(transposes) == 2
+        for t in transposes:
+            assert [i[0] for i in t.inputs] == ["a"]
+        neg = [n for n in nodes if n.algorithm == "element_mul"]
+        assert len(neg) == 1
+        assert neg[0].inputs[0][2] == "scalar"
+        assert neg[0].inputs[1][0] == "a"
+        sub = [n for n in nodes if n.algorithm == "element_sub"]
+        assert len(sub) == 1
+        assert sub[0].inputs[0][2] == "array"
+        assert sub[0].inputs[1][2] == "array"
+        assert graph.entry_points == [sub[0].node_id]
 
     def test_name_in_existing_not_in_func_inputs_direct(self) -> None:
         builder = MathIRBuilder(origin_file="unit.py")

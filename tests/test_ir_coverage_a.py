@@ -249,7 +249,7 @@ class TestEndpointBehavior:
         assert Effect.IO in node.effects
         assert node.is_pure() is False
 
-    def test_single_operation_return_decomposes_to_zero_nodes(self) -> None:
+    def test_local_helper_call_inlined_into_expression_return(self) -> None:
         builder = _build(
             "import numpy as np\n"
             "def plain(a, b):\n"
@@ -257,7 +257,16 @@ class TestEndpointBehavior:
             "def outer(a, b):\n"
             "    return plain(a, np.sin(b))\n"
         )
-        assert len(builder.graph.nodes) == 0
+        nodes = list(builder.graph.nodes.values())
+        assert len(nodes) == 2
+        sin_nodes = [n for n in nodes if n.algorithm == "element_sin"]
+        add_nodes = [n for n in nodes if n.algorithm == "element_add"]
+        assert len(sin_nodes) == 1
+        assert len(add_nodes) == 1
+        assert [i[0] for i in sin_nodes[0].inputs] == ["b"]
+        assert add_nodes[0].outputs == [("result", Dtype.FLOAT64, "array")]
+        assert sorted(n.algorithm for n in nodes) == ["element_add", "element_sin"]
+        assert builder.graph.entry_points == [add_nodes[0].node_id]
 
     def test_composed_multi_op_graph(self) -> None:
         builder = _build(
@@ -270,6 +279,39 @@ class TestEndpointBehavior:
         algos = [n.algorithm for n in nodes]
         assert "element_mul" in algos
         assert "element_sub" in algos
+
+    def test_composed_method_call_receiver_is_kernel_input(self) -> None:
+        builder = _build(
+            "import numpy as np\n"
+            "def comp(a, b):\n"
+            "    return np.multiply(a, b.transpose())\n"
+        )
+        nodes = list(builder.graph.nodes.values())
+        assert len(nodes) == 2
+        by_algo = {n.algorithm for n in nodes}
+        assert by_algo == {"transpose", "element_mul"}
+        transpose_node = next(n for n in nodes if n.algorithm == "transpose")
+        assert [i[0] for i in transpose_node.inputs] == ["b"]
+        mul_node = next(n for n in nodes if n.algorithm == "element_mul")
+        assert mul_node.inputs[0][0] == "a"
+        assert transpose_node.node_id in mul_node.nested_deps
+
+    def test_unary_neg_assign_in_full_body_binds_operand(self) -> None:
+        builder = _build(
+            "import numpy as np\n"
+            "def f(a, b, c):\n"
+            "    s = np.sin(b)\n"
+            "    r = -a\n"
+            "    return np.subtract(s, r)\n"
+        )
+        nodes = list(builder.graph.nodes.values())
+        assert len(nodes) == 3
+        by_algo = {n.algorithm for n in nodes}
+        assert by_algo == {"element_mul", "element_sub", "element_sin"}
+        neg_node = next(n for n in nodes if n.algorithm == "element_mul")
+        assert neg_node.inputs[1][0] == "a"
+        sub_node = next(n for n in nodes if n.algorithm == "element_sub")
+        assert neg_node.node_id in sub_node.nested_deps
 
 
 class TestBuilderFixture:

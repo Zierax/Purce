@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from purce.ir.nodes import (
     DepKind,
@@ -197,6 +197,32 @@ def _get_qualified_name(node: ast.expr) -> str:
     return ""
 
 
+def _substitute_into(node, substitution: dict[str, ast.expr]):
+    """Recursively replace ``ast.Name`` nodes matching ``substitution``.
+
+    Used for interprocedural inlining: a callee's parameters (as Name nodes)
+    are replaced by the caller's actual argument expressions.  Substituted
+    expressions are copied so a caller argument used for several parameters
+    does not share AST nodes across multiple locations.
+    """
+    if isinstance(node, ast.Name):
+        if node.id in substitution:
+            return ast.copy_location(ast.parse(
+                ast.unparse(substitution[node.id]), mode="eval"
+            ).body, node)
+        return node
+    if isinstance(node, ast.Constant):
+        return node
+    for field, value in ast.iter_fields(node):
+        if isinstance(value, ast.expr):
+            setattr(node, field, _substitute_into(value, substitution))
+        elif isinstance(value, list):
+            for i, item in enumerate(value):
+                if isinstance(item, ast.expr):
+                    value[i] = _substitute_into(item, substitution)
+    return node
+
+
 _NUMPY_DTYPE_NAMES = {
     "np.float16", "np.float32", "np.float64", "np.float128",
     "np.int8", "np.int16", "np.int32", "np.int64",
@@ -231,6 +257,13 @@ class MathIRBuilder:
         self._diagnostics: list[dict] = []
         self._node_counter = 0
         self._scalar_names: set[str] = set()
+        self._local_funcs: dict[str, ast.FunctionDef] = {}
+        # Interprocedural call edges: module-local function name -> set of
+        # module-local callee names it calls (gathered from the ORIGINAL AST
+        # before inlining, so the call graph reflects the source).
+        self._callees: dict[str, set[str]] = {}
+        # Recursion guard for local-call inlining.
+        self._inline_visiting: set[str] = set()
 
     def _shape_of(self, name: str) -> str:
         """Resolve the shape of a known local name (scalar or array)."""
@@ -266,13 +299,7 @@ class MathIRBuilder:
                 if target.id in scalars:
                     continue
                 value = stmt.value
-                if isinstance(value, ast.Constant) and isinstance(value.value, (int, float)):
-                    scalars.add(target.id)
-                    changed = True
-                elif isinstance(value, ast.Attribute) and value.attr in ("shape", "size", "ndim"):
-                    scalars.add(target.id)
-                    changed = True
-                elif isinstance(value, ast.Subscript) and isinstance(value.value, ast.Attribute) \
+                if isinstance(value, ast.Constant) and isinstance(value.value, (int, float)) or isinstance(value, ast.Attribute) and value.attr in ("shape", "size", "ndim") or isinstance(value, ast.Subscript) and isinstance(value.value, ast.Attribute) \
                         and value.value.attr in ("shape", "size"):
                     scalars.add(target.id)
                     changed = True
@@ -312,10 +339,68 @@ class MathIRBuilder:
             if isinstance(node, ast.FunctionDef):
                 local_funcs[node.name] = node
 
+        self._local_funcs = local_funcs
         for node in ast.iter_child_nodes(tree):
             if isinstance(node, ast.FunctionDef):
                 self._process_function(node, module_name, local_funcs)
+        self._finalize_call_graph(module_name)
         return self.graph
+
+    def _finalize_call_graph(self, module_name: str) -> None:
+        """Wire interprocedural edges and set meaningful entry points.
+
+        Two-phase build so that call edges can reference callee node ids that
+        only exist once every function has been processed:
+
+        * Interprocedural edges: if function F calls module-local function G,
+          every node belonging to F gains a nested_dep edge to G's root node.
+          The slicer's reachability then correctly keeps callees alive and the
+          call graph is a real graph (previously there were no cross-function
+          edges at all, so reachability-based DCE could neither keep callees
+          nor prune orphans soundly).
+
+        * Entry points: the root node of each top-level function — the last
+          node emitted for a function (which, through nested_deps chains,
+          reaches every earlier decomposition step).  Decomposition
+          intermediates are no longer treated as independent entry points,
+          so the slicer actually performs reachability instead of treating
+          every node as a liveness root.
+        """
+        if not self._local_funcs:
+            return
+
+        # Group nodes by the function that produced them (origin_symbol is
+        # "<module>.<funcname>" for both simple and decomposed nodes).
+        func_nodes: dict[str, list[str]] = {}
+        for nid, node in self.graph.nodes.items():
+            func_nodes.setdefault(node.origin_symbol, []).append(nid)
+
+        # The root of a function is the last node created for it.  The current
+        # entry_points list was appended in creation order, so the last id per
+        # origin_symbol is the function's root.
+        func_roots: dict[str, str] = {}
+        for nid in self.graph.entry_points:
+            node = self.graph.nodes.get(nid)
+            if node is not None:
+                func_roots[node.origin_symbol] = nid
+
+        # Wire callee roots into every caller node.
+        for caller, callees in self._callees.items():
+            caller_sym = f"{module_name}.{caller}"
+            for callee in callees:
+                callee_root = func_roots.get(f"{module_name}.{callee}")
+                if callee_root is None:
+                    continue
+                for nid in func_nodes.get(caller_sym, []):
+                    node = self.graph.nodes.get(nid)
+                    if node is not None and callee_root not in node.nested_deps:
+                        node.nested_deps.append(callee_root)
+
+        # Entry points = one root per top-level function, deterministically
+        # ordered by source symbol.
+        self.graph.entry_points = [
+            func_roots[sym] for sym in sorted(func_roots)
+        ]
 
     def _register_literal_elts(self, arg_node: ast.expr, inputs: list[tuple[str, Dtype, str]],
                                existing_names: set[str], scalar_constants: dict[str, float],
@@ -386,6 +471,11 @@ class MathIRBuilder:
 
     def _process_function(self, func: ast.FunctionDef, module_name: str,
                           local_funcs: dict[str, ast.FunctionDef] | None = None) -> None:
+        local_funcs = local_funcs or {}
+
+        self._record_local_callees(func, local_funcs)
+        func = self._inline_local_calls(func, local_funcs)
+
         has_numpy = False
         call_targets: list[str] = []
         effects = [Effect.PURE]
@@ -408,8 +498,17 @@ class MathIRBuilder:
                     has_numpy = True
                     call_targets.append(target)
 
-                if target in ("eval", "exec", "getattr", "setattr", "open", "print"):
+                # Only true I/O and dynamic-eval constructs are side-effecting
+                # enough to require reclassification.  getattr/setattr are NOT
+                # I/O: they are dynamic dispatch and must NOT delete a kernel
+                # that contains a numpy op (dynamic calls are a known analysis
+                # limitation, treated conservatively).
+                if target in ("eval", "exec", "open", "print"):
                     effects.append(Effect.IO)
+                elif target in ("getattr", "setattr"):
+                    # Dynamic dispatch: conservatively treat as TEMPORAL so the
+                    # slicer keeps the node (unresolved calls are a barrier).
+                    effects.append(Effect.TEMPORAL)
 
         if not has_numpy:
             return
@@ -492,8 +591,16 @@ class MathIRBuilder:
         if return_stmt is not None and isinstance(return_stmt.value, ast.Call):
             has_nested = self._has_nested_numpy_calls(return_stmt.value, local_funcs or {})
 
+        # A non-call expression return (e.g. ``return a + np.sin(b)``) carries
+        # the function's result in an operator expression, not in a numpy call.
+        # Route it through full-body decomposition so the BinOp/UnaryOp is
+        # materialized as the result kernel instead of being silently dropped.
+        has_expr_return = return_stmt is not None and isinstance(
+            return_stmt.value, (ast.BinOp, ast.UnaryOp)
+        )
+
         has_multi_stmt = self._has_multi_statement_numpy(func)
-        if has_multi_stmt:
+        if has_multi_stmt or has_expr_return:
             self._decompose_full_body(
                 func, module_name, inputs, outputs, effects,
                 existing_input_names, scalar_constants, local_funcs or {},
@@ -569,17 +676,205 @@ class MathIRBuilder:
         self.graph.add_node(node)
         self.graph.entry_points.append(node_id)
 
+    def _record_local_callees(self, func: ast.FunctionDef,
+                              local_funcs: dict[str, ast.FunctionDef]) -> None:
+        """Record which module-local functions ``func`` calls.
+
+        Gathered from the ORIGINAL AST (before inlining) so the interprocedural
+        edges in the final graph mirror the source-level call graph.
+        """
+        callees: set[str] = set()
+        for child in ast.walk(func):
+            if not isinstance(child, ast.Call):
+                continue
+            target = ""
+            if isinstance(child.func, ast.Attribute):
+                target = _get_qualified_name(child.func)
+            elif isinstance(child.func, ast.Name):
+                target = child.func.id
+            if target in local_funcs:
+                callees.add(target)
+        if callees:
+            self._callees[func.name] = callees
+
+    def _inline_local_calls(self, func: ast.FunctionDef,
+                            local_funcs: dict[str, ast.FunctionDef]) -> ast.FunctionDef:
+        """Inline module-local function calls into ``func``.
+
+        A call to a module-local function is replaced by the callee's body with
+        the callee's parameters substituted by the caller's actual arguments.
+        Single-expression callees are replaced entirely; multi-statement
+        callees have their statements spliced before the statement containing
+        the call.  Nested local calls are inlined recursively.  Recursive /
+        unresolved calls are left intact (they surface as unresolved inputs and
+        are flagged by the identifier checker), never silently dropped.
+
+        Without this, a composed expression such as ``np.multiply(helper(a), b)``
+        silently discarded the helper's computation (the caller became just
+        ``a * b``).
+        """
+        if not local_funcs:
+            return func
+
+        called: set[str] = set()
+        for child in ast.walk(func):
+            if isinstance(child, ast.Call):
+                target = ""
+                if isinstance(child.func, ast.Attribute):
+                    target = _get_qualified_name(child.func)
+                elif isinstance(child.func, ast.Name):
+                    target = child.func.id
+                if target in local_funcs:
+                    called.add(target)
+        if not called:
+            return func
+
+        new_body: list[ast.stmt] = []
+        for stmt in func.body:
+            new_body.extend(self._inline_stmt(stmt, local_funcs))
+
+        new_func = ast.FunctionDef(
+            name=func.name,
+            args=func.args,
+            body=new_body,
+            decorator_list=func.decorator_list,
+            returns=func.returns,
+            lineno=func.lineno,
+        )
+        ast.fix_missing_locations(new_func)
+        return new_func
+
+    def _inline_stmt(self, stmt: ast.stmt, local_funcs: dict[str, ast.FunctionDef]) -> list[ast.stmt]:
+        """Inline local calls found anywhere in ``stmt``.
+
+        Returns a list of statements: any statements spliced out of
+        multi-statement callees first, then the rewritten statement.
+        """
+        pre: list[ast.stmt] = []
+        result = self._rewrite_node(stmt, local_funcs, pre)
+        return pre + [result]
+
+    def _rewrite_node(self, node, local_funcs: dict[str, ast.FunctionDef],
+                      pre: list[ast.stmt]):
+        """Rewrite ``node`` in place, inlining local calls in its expressions.
+
+        ``pre`` accumulates statements spliced from multi-statement callees.
+        """
+        if isinstance(node, ast.expr):
+            new_expr, spliced = self._inline_expr(node, local_funcs)
+            pre.extend(spliced)
+            return new_expr
+        # Statement / generic nodes: rewrite all child expressions.
+        for field, value in ast.iter_fields(node):
+            if isinstance(value, ast.expr):
+                new_value, spliced = self._inline_expr(value, local_funcs)
+                if spliced:
+                    pre.extend(spliced)
+                setattr(node, field, new_value)
+            elif isinstance(value, list):
+                for i, item in enumerate(value):
+                    if isinstance(item, ast.expr):
+                        new_item, spliced = self._inline_expr(item, local_funcs)
+                        if spliced:
+                            pre.extend(spliced)
+                        value[i] = new_item
+        return node
+
+    def _inline_expr(self, expr: ast.expr,
+                     local_funcs: dict[str, ast.FunctionDef]) -> tuple[ast.expr, list[ast.stmt]]:
+        """Inline local calls inside ``expr``.
+
+        Returns ``(new_expr, spliced_statements)``.  Spliced statements come
+        from multi-statement callees and must execute before the statement
+        containing ``expr``.
+        """
+        if not isinstance(expr, ast.Call):
+            return expr, []
+
+        target = ""
+        if isinstance(expr.func, ast.Attribute):
+            target = _get_qualified_name(expr.func)
+        elif isinstance(expr.func, ast.Name):
+            target = expr.func.id
+
+        callee = local_funcs.get(target) if target else None
+        if callee is not None:
+            # Recursion guard: an in-progress callee is left intact (unresolved)
+            # rather than infinitely recursing.
+            if target in self._inline_visiting:
+                return expr, []
+
+            new_args, spliced_args = self._inline_call_args(expr.args, local_funcs)
+
+            substitution: dict[str, ast.expr] = {}
+            for param, arg_expr in zip(
+                [a.arg for a in callee.args.args], new_args
+            ):
+                substitution[param] = arg_expr
+
+            self._inline_visiting.add(target)
+            try:
+                ret_expr, body_stmts = self._inline_callee_body(
+                    callee, substitution, local_funcs
+                )
+            finally:
+                self._inline_visiting.discard(target)
+
+            return ret_expr, spliced_args + body_stmts
+
+        # Non-local call: rewrite arguments recursively.
+        new_args, spliced_args = self._inline_call_args(expr.args, local_funcs)
+        for i, arg in enumerate(new_args):
+            expr.args[i] = arg
+        return expr, spliced_args
+
+    def _inline_call_args(self, args: list[ast.expr],
+                          local_funcs: dict[str, ast.FunctionDef]) -> tuple[list[ast.expr], list[ast.stmt]]:
+        new_args: list[ast.expr] = []
+        spliced: list[ast.stmt] = []
+        for arg in args:
+            new_arg, s = self._inline_expr(arg, local_funcs)
+            new_args.append(new_arg)
+            spliced.extend(s)
+        return new_args, spliced
+
+    def _inline_callee_body(self, callee: ast.FunctionDef,
+                            substitution: dict[str, ast.expr],
+                            local_funcs: dict[str, ast.FunctionDef]) -> tuple[ast.expr, list[ast.stmt]]:
+        """Produce (return_expr, spliced_statements) for an inlined callee."""
+        body = list(callee.body)
+        if not body:
+            return self._substitute_expr(
+                ast.Constant(value=0.0), substitution
+            ), []
+
+        ret_expr: ast.expr | None = None
+        spliced: list[ast.stmt] = []
+        for stmt in body:
+            if isinstance(stmt, ast.Return):
+                ret_value = stmt.value if stmt.value is not None else ast.Constant(value=None)
+                ret_expr = self._substitute_expr(ret_value, substitution)
+                continue
+            # Non-return statement: substitute params, then splice.  Local calls
+            # inside it are inlined recursively so nested helpers work.
+            new_stmt = self._substitute_stmt(stmt, substitution)
+            new_stmt = self._rewrite_node(new_stmt, local_funcs, spliced)
+            spliced.append(new_stmt)
+        if ret_expr is None:
+            ret_expr = ast.Constant(value=0.0)
+        return ret_expr, spliced
+
+    def _substitute_stmt(self, stmt: ast.stmt, substitution: dict[str, ast.expr]) -> ast.stmt:
+        return _substitute_into(stmt, substitution)
+
+    def _substitute_expr(self, node, substitution: dict[str, ast.expr]):
+        return _substitute_into(node, substitution)
+
     def _has_nested_numpy_calls(self, call_node: ast.Call,
                                 local_funcs: dict[str, ast.FunctionDef]) -> bool:
         for arg in call_node.args:
             if isinstance(arg, ast.Call):
-                target = ""
-                if isinstance(arg.func, ast.Attribute):
-                    target = _get_qualified_name(arg.func)
-                elif isinstance(arg.func, ast.Name):
-                    target = arg.func.id
-                if target.startswith("np."):
-                    target = "numpy." + target[3:]
+                target = self._resolve_call_target(arg)
                 if target in NUMPY_OP_MAP:
                     return True
                 if target in local_funcs:
@@ -592,13 +887,7 @@ class MathIRBuilder:
                         if isinstance(stmt, ast.Return) and isinstance(stmt.value, ast.Call):
                             for inner_arg in stmt.value.args:
                                 if isinstance(inner_arg, ast.Call):
-                                    inner_target = ""
-                                    if isinstance(inner_arg.func, ast.Attribute):
-                                        inner_target = _get_qualified_name(inner_arg.func)
-                                    elif isinstance(inner_arg.func, ast.Name):
-                                        inner_target = inner_arg.func.id
-                                    if inner_target.startswith("np."):
-                                        inner_target = "numpy." + inner_target[3:]
+                                    inner_target = self._resolve_call_target(inner_arg)
                                     if inner_target in NUMPY_OP_MAP:
                                         return True
         return False
@@ -654,13 +943,7 @@ class MathIRBuilder:
                 return (const_name, Dtype.FLOAT64, "scalar")
 
         if isinstance(arg_node, ast.Call):
-            target = ""
-            if isinstance(arg_node.func, ast.Attribute):
-                target = _get_qualified_name(arg_node.func)
-            elif isinstance(arg_node.func, ast.Name):
-                target = arg_node.func.id
-            if target.startswith("np."):
-                target = "numpy." + target[3:]
+            target = self._resolve_call_target(arg_node)
             if target in intermediates:
                 inter_name = intermediates[target]
                 return (inter_name, Dtype.FLOAT64, self._shape_of(inter_name))
@@ -764,7 +1047,7 @@ class MathIRBuilder:
 
             node_idx_ref = [node_idx]
             node_inputs: list[tuple[str, Dtype, str]] = []
-            for arg in call_node.args:
+            for arg in self._call_input_exprs(call_node):
                 if isinstance(arg, (ast.List, ast.Tuple)):
                     for elt in arg.elts:
                         if isinstance(elt, ast.Call) and id(elt) in processed_call_ids:
@@ -929,6 +1212,26 @@ class MathIRBuilder:
             target = "numpy." + target[3:]
         return target
 
+    def _is_module_ref(self, node: ast.expr) -> bool:
+        """True if an expression is a reference to the numpy module (possibly
+        through dotted submodules, e.g. ``np``, ``numpy``, ``np.random``)."""
+        while isinstance(node, ast.Attribute):
+            node = node.value
+        return isinstance(node, ast.Name) and node.id in ("np", "numpy")
+
+    def _call_input_exprs(self, call_node: ast.Call) -> list[ast.expr]:
+        """Argument expressions of a numpy call, with the method receiver
+        prepended for method-style calls such as ``x.transpose()``.
+
+        ``x.transpose()`` carries the receiver ``x`` as an implicit first
+        argument; ``np.transpose(x)`` does not.  Prepending the receiver keeps
+        the kernel input list complete for method-style numpy calls.
+        """
+        exprs: list[ast.expr] = list(call_node.args)
+        if isinstance(call_node.func, ast.Attribute) and not self._is_module_ref(call_node.func.value):
+            exprs.insert(0, call_node.func.value)
+        return exprs
+
     def _collect_all_numpy_calls_from_body(self, func: ast.FunctionDef,
                                            local_funcs: dict[str, ast.FunctionDef]) -> list[tuple[str, ast.Call]]:
         operations: list[tuple[str, ast.Call]] = []
@@ -943,6 +1246,8 @@ class MathIRBuilder:
                     for elt in stmt.value.elts:
                         if isinstance(elt, ast.Call):
                             self._collect_numpy_calls(elt, operations, local_funcs)
+                elif isinstance(stmt.value, (ast.BinOp, ast.UnaryOp, ast.IfExp)):
+                    self._collect_calls_from_expr(stmt.value, operations, local_funcs)
         return operations
 
     def _decompose_expr(
@@ -1125,7 +1430,7 @@ class MathIRBuilder:
             algo = self._algorithm_for(call_target, expr)
             if algo is not None and algo != "unknown":
                 node_inputs = []
-                for arg in expr.args:
+                for arg in self._call_input_exprs(expr):
                     if isinstance(arg, ast.List):
                         for elt in arg.elts:
                             r = self._decompose_expr(
@@ -1567,7 +1872,7 @@ class MathIRBuilder:
                         if if_target in NUMPY_OP_MAP:
                             node_idx_ref = [node_idx]
                             if_inputs = []
-                            for arg in if_value.args:
+                            for arg in self._call_input_exprs(if_value):
                                 r = self._decompose_expr(
                                     arg, func_inputs, scalar_constants, intermediates,
                                     symbol_table, existing_names, constant_assignments,
@@ -1616,7 +1921,7 @@ class MathIRBuilder:
                         if else_target in NUMPY_OP_MAP:
                             node_idx_ref = [node_idx]
                             else_inputs = []
-                            for arg in else_value.args:
+                            for arg in self._call_input_exprs(else_value):
                                 r = self._decompose_expr(
                                     arg, func_inputs, scalar_constants, intermediates,
                                     symbol_table, existing_names, constant_assignments,
@@ -1707,7 +2012,7 @@ class MathIRBuilder:
                     algo = self._algorithm_for(expr_target, stmt.value)
                     node_idx_ref = [node_idx]
                     node_inputs = []
-                    for arg in stmt.value.args:
+                    for arg in self._call_input_exprs(stmt.value):
                         if isinstance(arg, (ast.List, ast.Tuple)):
                             for elt in arg.elts:
                                 r = self._decompose_expr(
@@ -1870,6 +2175,19 @@ class MathIRBuilder:
                         symbol_table[target_name] = (inter_name, Dtype.FLOAT64)
                     continue
 
+                if isinstance(stmt.value, ast.UnaryOp) and isinstance(stmt.value.op, ast.USub):
+                    node_idx_ref = [node_idx]
+                    resolved = self._decompose_expr(
+                        stmt.value, func_inputs, scalar_constants, intermediates,
+                        symbol_table, existing_names, constant_assignments,
+                        module_name, func.name, origin_file, all_dep_ids, node_idx_ref,
+                    )
+                    node_idx = node_idx_ref[0]
+                    if isinstance(resolved, list):
+                        resolved = resolved[0]
+                    symbol_table[target_name] = (resolved[0], resolved[1])
+                    continue
+
                 if isinstance(stmt.value, ast.Call):
                     call_target = self._resolve_call_target(stmt.value)
                     if call_target.startswith("np."):
@@ -1884,7 +2202,7 @@ class MathIRBuilder:
 
                         node_idx_ref = [node_idx]
                         node_inputs: list[tuple[str, Dtype, str]] = []
-                        for arg in stmt.value.args:
+                        for arg in self._call_input_exprs(stmt.value):
                             if isinstance(arg, (ast.List, ast.Tuple)):
                                 for elt in arg.elts:
                                     resolved = self._decompose_expr(
@@ -2007,7 +2325,7 @@ class MathIRBuilder:
 
                     node_idx_ref = [node_idx]
                     node_inputs: list[tuple[str, Dtype, str]] = []
-                    for arg in return_stmt.value.args:
+                    for arg in self._call_input_exprs(return_stmt.value):
                         if isinstance(arg, (ast.List, ast.Tuple)):
                             for elt in arg.elts:
                                 resolved = self._decompose_expr(
@@ -2082,6 +2400,122 @@ class MathIRBuilder:
                     self.graph.add_node(node)
                     self.graph.entry_points.append(node_id)
                     all_dep_ids.append(node_id)
+
+        if return_stmt is not None and isinstance(return_stmt.value, ast.BinOp):
+            binop_map = {
+                ast.Add: "element_add", ast.Sub: "element_sub",
+                ast.Mult: "element_mul", ast.Div: "element_div",
+                ast.Pow: "element_power", ast.Mod: "element_mod",
+                ast.FloorDiv: "element_div",
+            }
+            op = type(return_stmt.value.op)
+            if op in binop_map:
+                node_idx_ref = [node_idx]
+                left = self._decompose_expr(
+                    return_stmt.value.left, func_inputs, scalar_constants, intermediates,
+                    symbol_table, existing_names, constant_assignments,
+                    module_name, func.name, origin_file, all_dep_ids, node_idx_ref,
+                )
+                right = self._decompose_expr(
+                    return_stmt.value.right, func_inputs, scalar_constants, intermediates,
+                    symbol_table, existing_names, constant_assignments,
+                    module_name, func.name, origin_file, all_dep_ids, node_idx_ref,
+                )
+                node_idx = node_idx_ref[0]
+                node_inputs: list[tuple[str, Dtype, str]] = []
+                for operand in (left, right):
+                    if isinstance(operand, list):
+                        node_inputs.extend(operand)
+                    else:
+                        node_inputs.append(operand)
+                algo = binop_map[op]
+                node_outputs = list(func_outputs)
+                sig_parts = [f"{dt.name.lower()} {name}" for name, dt, _ in node_inputs]
+                origin_sig = f"{' -> '.join(sig_parts)} -> {func_outputs[0][1].name.lower()}"
+
+                self._node_counter += 1
+                node_id = _make_node_id(module_name, func.name)
+                node = MathIRNode(
+                    node_id=node_id,
+                    origin_symbol=f"{module_name}.{func.name}",
+                    origin_file=origin_file,
+                    origin_line=return_stmt.lineno,
+                    origin_commit=self.origin_commit,
+                    origin_signature=origin_sig,
+                    math_intent=f"Return of '{func.name}' implementing {algo}",
+                    inputs=node_inputs,
+                    outputs=node_outputs,
+                    effects=effects,
+                    algorithm=algo,
+                    reductions=[ReductionEntry(
+                        rule="binop_return_decomposition",
+                        description=f"Decomposed return BinOp as {algo}",
+                        original=algo,
+                    )],
+                    nested_deps=list(all_dep_ids),
+                    stack_usage=256,
+                    heap_usage=None,
+                    reentrant=Effect.ALLOC not in effects,
+                    dep_kind=DepKind.MATH_KERNEL,
+                    scalar_constants=dict(scalar_constants),
+                )
+                self.graph.add_node(node)
+                self.graph.entry_points.append(node_id)
+                all_dep_ids.append(node_id)
+
+        if return_stmt is not None and (
+            isinstance(return_stmt.value, ast.UnaryOp)
+            and isinstance(return_stmt.value.op, ast.USub)
+        ):
+            node_idx_ref = [node_idx]
+            inner = self._decompose_expr(
+                return_stmt.value.operand, func_inputs, scalar_constants, intermediates,
+                symbol_table, existing_names, constant_assignments,
+                module_name, func.name, origin_file, all_dep_ids, node_idx_ref,
+            )
+            node_idx = node_idx_ref[0]
+            if isinstance(inner, list):
+                inner = inner[0]
+            neg_const_name = f"_const_{len(scalar_constants)}"
+            if neg_const_name not in existing_names:
+                scalar_constants[neg_const_name] = -1.0
+                existing_names.add(neg_const_name)
+            node_inputs: list[tuple[str, Dtype, str]] = [
+                (neg_const_name, Dtype.FLOAT64, "scalar"), inner,
+            ]
+            node_outputs = list(func_outputs)
+            sig_parts = [f"{dt.name.lower()} {name}" for name, dt, _ in node_inputs]
+            origin_sig = f"{' -> '.join(sig_parts)} -> {func_outputs[0][1].name.lower()}"
+
+            self._node_counter += 1
+            node_id = _make_node_id(module_name, func.name)
+            node = MathIRNode(
+                node_id=node_id,
+                origin_symbol=f"{module_name}.{func.name}",
+                origin_file=origin_file,
+                origin_line=return_stmt.lineno,
+                origin_commit=self.origin_commit,
+                origin_signature=origin_sig,
+                math_intent=f"Return of '{func.name}' implementing element_mul negation",
+                inputs=node_inputs,
+                outputs=node_outputs,
+                effects=effects,
+                algorithm="element_mul",
+                reductions=[ReductionEntry(
+                    rule="unary_return_decomposition",
+                    description="Decomposed return negation as element_mul",
+                    original="neg",
+                )],
+                nested_deps=list(all_dep_ids),
+                stack_usage=256,
+                heap_usage=None,
+                reentrant=Effect.ALLOC not in effects,
+                dep_kind=DepKind.MATH_KERNEL,
+                scalar_constants=dict(scalar_constants),
+            )
+            self.graph.add_node(node)
+            self.graph.entry_points.append(node_id)
+            all_dep_ids.append(node_id)
 
     def _resolve_arg_for_full_body(self, arg_node: ast.expr,
                                    func_inputs: list[tuple[str, Dtype, str]],
@@ -2286,15 +2720,9 @@ class MathIRBuilder:
 
     def _collect_numpy_calls(self, call_node: ast.Call, operations: list[tuple[str, ast.Call]],
                              local_funcs: dict[str, ast.FunctionDef]) -> None:
-        target = ""
-        if isinstance(call_node.func, ast.Attribute):
-            target = _get_qualified_name(call_node.func)
-        elif isinstance(call_node.func, ast.Name):
-            target = call_node.func.id
-        if target.startswith("np."):
-            target = "numpy." + target[3:]
+        target = self._resolve_call_target(call_node)
 
-        for arg in call_node.args:
+        for arg in self._call_input_exprs(call_node):
             self._collect_calls_from_expr(arg, operations, local_funcs)
 
         if target in NUMPY_OP_MAP:
@@ -2303,13 +2731,7 @@ class MathIRBuilder:
     def _collect_calls_from_expr(self, expr: ast.expr, operations: list[tuple[str, ast.Call]],
                                  local_funcs: dict[str, ast.FunctionDef]) -> None:
         if isinstance(expr, ast.Call):
-            inner_target = ""
-            if isinstance(expr.func, ast.Attribute):
-                inner_target = _get_qualified_name(expr.func)
-            elif isinstance(expr.func, ast.Name):
-                inner_target = expr.func.id
-            if inner_target.startswith("np."):
-                inner_target = "numpy." + inner_target[3:]
+            inner_target = self._resolve_call_target(expr)
             if inner_target in NUMPY_OP_MAP:
                 self._collect_numpy_calls(expr, operations, local_funcs)
             elif inner_target in local_funcs:
@@ -2318,7 +2740,7 @@ class MathIRBuilder:
                     if isinstance(stmt, ast.Return) and isinstance(stmt.value, ast.Call):
                         self._collect_numpy_calls(stmt.value, operations, local_funcs)
             else:
-                for sub_arg in expr.args:
+                for sub_arg in self._call_input_exprs(expr):
                     self._collect_calls_from_expr(sub_arg, operations, local_funcs)
         elif isinstance(expr, ast.BinOp):
             self._collect_calls_from_expr(expr.left, operations, local_funcs)
