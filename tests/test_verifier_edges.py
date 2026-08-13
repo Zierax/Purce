@@ -469,11 +469,14 @@ class TestSlicerEdgeLines:
         assert out.pal_stubs == []
         assert out.data_assets == []
 
-    def test_classify_impure_kernel_becomes_system_pal(self) -> None:
+    def test_classify_keeps_impure_kernel_as_math_kernel(self) -> None:
+        # Effects are verification metadata, not a deletion trigger: an
+        # impure MATH_KERNEL (RNG/IO/TEMPORAL) must still be emitted, never
+        # downgraded to SYSTEM_PAL and silently dropped.
         node = _make_node("kernel")
         node.effects = [Effect.RANDOM]
         slicer = SemanticSlicer()
-        assert slicer._classify(node) == DepKind.SYSTEM_PAL
+        assert slicer._classify(node) == DepKind.MATH_KERNEL
 
 
 @RequiresGcc

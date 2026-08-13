@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from purce.ir.nodes import DepKind, Effect, MathIRGraph, MathIRNode
+from purce.ir.nodes import DepKind, MathIRGraph, MathIRNode
 
 
 @dataclass
@@ -116,13 +116,13 @@ class SemanticSlicer:
                 result.inlined_utils.append(nid)
 
     def _classify(self, node: MathIRNode) -> DepKind:
-        if node.dep_kind != DepKind.MATH_KERNEL:
-            return node.dep_kind
-
-        if node.effects and any(e in (Effect.IO, Effect.TEMPORAL, Effect.RANDOM) for e in node.effects):
-            return DepKind.SYSTEM_PAL
-
-        return DepKind.MATH_KERNEL
+        # Classification is taken from the builder's explicit dep_kind.  Effects
+        # (IO/TEMPORAL/RANDOM) are verification metadata, NOT grounds for
+        # downgrading a compilable MATH_KERNEL to SYSTEM_PAL and deleting it:
+        # a function that calls np.add() and also prints is still a real math
+        # kernel and must be emitted.  (Formerly such kernels were silently
+        # dropped, losing observable behavior.)
+        return node.dep_kind
 
     def prune_unused(self, graph: MathIRGraph, entry_points: list[str]) -> MathIRGraph:
         reachable = self._reachability(graph, entry_points)
