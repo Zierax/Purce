@@ -322,7 +322,13 @@ class TestZ3Verifier:
         )
         report = verifier.verify_node(node)
         assert len(report.conditions) >= 1
-        assert report.violated_count + report.verified_count == len(report.conditions)
+        # Power-of-two sizing is enforced by the runtime guard in the generated
+        # kernel, which the SMT layer cannot see; the honest verdict is UNKNOWN
+        # (with the rejecting counterexample documented), verified via
+        # differential fuzzing over the power-of-two domain instead.
+        assert report.conditions[0].result == "UNKNOWN"
+        assert report.conditions[0].counterexample is not None
+        assert not report.all_verified
 
     def test_verify_graph(self) -> None:
         verifier = Z3Verifier()

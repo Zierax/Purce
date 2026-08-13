@@ -776,6 +776,14 @@ def _all_close(a: list[float], b: list[float], rtol: float, atol: float) -> bool
     if len(a) != len(b):
         return False
     for x, y in zip(a, b):
+        if math.isnan(x) or math.isnan(y):
+            if not (math.isnan(x) and math.isnan(y)):
+                return False
+            continue
+        if math.isinf(x) or math.isinf(y):
+            if not (math.isinf(x) and math.isinf(y) and (x > 0) == (y > 0)):
+                return False
+            continue
         if abs(x - y) > atol + rtol * abs(x):
             return False
     return True
@@ -784,4 +792,15 @@ def _all_close(a: list[float], b: list[float], rtol: float, atol: float) -> bool
 def _max_error(a: list[float], b: list[float]) -> float:
     if not a:
         return 0.0
-    return max(abs(x - y) for x, y in zip(a, b))
+    worst = 0.0
+    for x, y in zip(a, b):
+        if math.isnan(x) or math.isnan(y):
+            if math.isnan(x) and math.isnan(y):
+                continue
+            return float("inf")
+        if math.isinf(x) or math.isinf(y):
+            if not (math.isinf(x) and math.isinf(y) and (x > 0) == (y > 0)):
+                return float("inf")
+            continue
+        worst = max(worst, abs(x - y))
+    return worst
