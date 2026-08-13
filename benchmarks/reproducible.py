@@ -177,8 +177,16 @@ def run_extraction(corpus_dir: Path, out_dir: Path) -> ExtractionStats:
 
 def _normalize_content(text: str) -> str:
     """Strip volatile timestamps and the absolute checkout path so the
-    content hash is stable across runs and checkout locations."""
-    text = text.replace(_CHECKOUT_ROOT, "{PURCE_ROOT}")
+    content hash is stable across runs and checkout locations.
+
+    Path separators are normalized to forward slashes before the checkout
+    root is replaced: generated C embeds native backslash paths while JSON
+    provenance escapes them (doubled backslashes), and ``_CHECKOUT_ROOT`` is
+    always forward-slashed.
+    """
+    text = text.replace("\\\\", "/").replace("\\", "/")
+    root = _CHECKOUT_ROOT.replace("\\", "/")
+    text = text.replace(root, "{PURCE_ROOT}")
     for pattern in _VOLATILE_PATTERNS:
         text = pattern.sub("", text)
     return text
@@ -465,7 +473,7 @@ def run_harness(
         content_sha256=digest,
         total_c_files=total_c,
         total_py_files=total_py,
-        timestamp_utc=datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        timestamp_utc=datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
     )
 
     report_path = output_root / "report.json"

@@ -284,6 +284,7 @@ MATH_KERNEL_BODIES: dict[str, str] = {
     *result_ptr = (n > 0) ? (sum / (double)n) : 0.0;""",
     "reduce_max": """\
     /* Reduction max: result = max(x[0..n-1]) */
+    if (n <= 0) { *result_ptr = 0.0; return; }
     double max_val = x[0];
     for (int i = 1; i < n; i++) {
         if (x[i] > max_val) max_val = x[i];
@@ -291,6 +292,7 @@ MATH_KERNEL_BODIES: dict[str, str] = {
     *result_ptr = max_val;""",
     "reduce_min": """\
     /* Reduction min: result = min(x[0..n-1]) */
+    if (n <= 0) { *result_ptr = 0.0; return; }
     double min_val = x[0];
     for (int i = 1; i < n; i++) {
         if (x[i] < min_val) min_val = x[i];
@@ -298,8 +300,8 @@ MATH_KERNEL_BODIES: dict[str, str] = {
     *result_ptr = min_val;""",
     "linalg_solve": """\
     /* Solve Ax = b using Gaussian elimination with partial pivoting */
-    /* Bounds check: n must be positive */
-    if (n <= 0) return;
+    /* Bounds check: n must be positive and within the fixed-size workspace */
+    if (n <= 0 || n > 64) return;
     /* Copy A and b to avoid modifying inputs */
     double aug[64][65];
     for (int i = 0; i < n; i++) {
@@ -343,7 +345,8 @@ MATH_KERNEL_BODIES: dict[str, str] = {
     }""",
     "linalg_inv": """\
     /* Invert matrix using Gauss-Jordan elimination */
-    if (n <= 0) return;
+    /* Bounds check: n must be positive and within the fixed-size workspace */
+    if (n <= 0 || n > 64) return;
     double aug[64][128];
     for (int i = 0; i < n; i++) {
         for (int j = 0; j < n; j++) {
@@ -402,7 +405,16 @@ MATH_KERNEL_BODIES: dict[str, str] = {
         }
     }""",
     "fft": """\
-    /* Cooley-Tukey FFT (radix-2, in-place on output) */
+    /* Cooley-Tukey FFT (radix-2, in-place on output).
+     * Runtime guard: n must be a power of two in [2, 131072]. Non-power-of-two
+     * sizes are rejected (zero-filled output) instead of producing garbage. */
+    if (n < 2 || (n & (n - 1)) != 0) {
+        for (int i = 0; i < n; i++) {
+            out_real[i] = 0.0;
+            out_imag[i] = 0.0;
+        }
+        return;
+    }
     for (int i = 0; i < n; i++) {
         out_real[i] = real[i];
         out_imag[i] = imag[i];
@@ -446,7 +458,16 @@ MATH_KERNEL_BODIES: dict[str, str] = {
         }
     }""",
     "ifft": """\
-    /* Inverse FFT: conjugate, FFT, conjugate, scale */
+    /* Inverse FFT: conjugate, FFT, conjugate, scale.
+     * Runtime guard: n must be a power of two in [2, 131072]. Non-power-of-two
+     * sizes are rejected (zero-filled output) instead of producing garbage. */
+    if (n < 2 || (n & (n - 1)) != 0) {
+        for (int i = 0; i < n; i++) {
+            out_real[i] = 0.0;
+            out_imag[i] = 0.0;
+        }
+        return;
+    }
     for (int i = 0; i < n; i++) {
         out_real[i] = real[i];
         out_imag[i] = -imag[i];
