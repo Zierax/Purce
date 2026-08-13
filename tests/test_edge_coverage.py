@@ -18,10 +18,12 @@ import json
 import logging
 import os
 import re
+import shutil
 import subprocess
 import sys
 import types
 from pathlib import Path
+from unittest import mock
 
 import pytest
 from click.testing import CliRunner
@@ -181,25 +183,34 @@ class TestCLIDataAssetsAndVerify:
         def fake_fuzz_all(self, iterations: int = 1000) -> dict:
             return {
                 "matmul": FuzzResult(
-                    operation="matmul", iterations=iterations, passed=iterations, failed=0
+                    operation="matmul", iterations=iterations, passed=iterations, failed=0,
+                    tested_c=True,
                 )
             }
 
         monkeypatch.setattr(cli_mod.DifferentialFuzzer, "fuzz_all", fake_fuzz_all)
+        monkeypatch.setattr(
+            cli_mod, "_try_c_backend", lambda: (cli_mod.DifferentialFuzzer(), mock.Mock())
+        )
         result = runner.invoke(cli_mod.main, ["verify", "--iterations", "3"])
-        assert result.exit_code == 0
-        assert "Z3 solver: not available (install z3-solver)" in result.output
-        assert "All operations passed" in result.output
+        # Without Z3 the verification suite cannot run at all, so the command
+        # must fail loudly rather than silently skipping the Z3 phase.
+        assert result.exit_code == 1
+        assert "Z3 solver: not available (install z3-solver); verification cannot run" in result.output
 
     def test_verify_failure_exit_code(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
         def fake_fuzz_all(self, iterations: int = 1000) -> dict:
             return {
                 "matmul": FuzzResult(
-                    operation="matmul", iterations=iterations, passed=iterations - 1, failed=1
+                    operation="matmul", iterations=iterations, passed=iterations - 1, failed=1,
+                    tested_c=True,
                 )
             }
 
         monkeypatch.setattr(cli_mod.DifferentialFuzzer, "fuzz_all", fake_fuzz_all)
+        monkeypatch.setattr(
+            cli_mod, "_try_c_backend", lambda: (cli_mod.DifferentialFuzzer(), mock.Mock())
+        )
         result = runner.invoke(cli_mod.main, ["verify", "--iterations", "3"])
         assert result.exit_code == 1
         assert "FAIL" in result.output
@@ -217,15 +228,14 @@ class TestCLIModuleEntry:
         prev_argv = sys.argv
         sys.argv = ["purce", "--version"]
         try:
-            with contextlib.redirect_stdout(buf):
-                with warnings.catch_warnings():
-                    warnings.filterwarnings(
-                        "ignore",
-                        message=".*found in sys.modules.*",
-                        category=RuntimeWarning,
-                    )
-                    with pytest.raises(SystemExit) as excinfo:
-                        runpy.run_module("purce.cli", run_name="__main__")
+            with contextlib.redirect_stdout(buf), warnings.catch_warnings():
+                warnings.filterwarnings(
+                    "ignore",
+                    message=".*found in sys.modules.*",
+                    category=RuntimeWarning,
+                )
+                with pytest.raises(SystemExit) as excinfo:
+                    runpy.run_module("purce.cli", run_name="__main__")
             assert excinfo.value.code == 0
             assert __version__ in buf.getvalue()
         finally:
@@ -388,7 +398,7 @@ class TestUnknownAlgorithm:
             [("C", "array"), ("C", "array")],
         )
         contents = _render_c(_graph(node))
-        sig = re.search(r"void \w+\(.*?\)", contents[0], re.S).group(0)
+        sig = re.search(r"void \w+\(.*?\)", contents[0], re.DOTALL).group(0)
         assert sig.count("C") == 1
 
 
@@ -475,8 +485,8 @@ class TestDeterministicOrdering:
         assert c1 == c2
         assert len(c1) >= 1
         for cf in c1:
-            header1 = re.search(r"^ \* ORIGIN FILE:.*$", snap1[cf], re.M)
-            header2 = re.search(r"^ \* ORIGIN FILE:.*$", snap2[cf], re.M)
+            header1 = re.search(r"^ \* ORIGIN FILE:.*$", snap1[cf], re.MULTILINE)
+            header2 = re.search(r"^ \* ORIGIN FILE:.*$", snap2[cf], re.MULTILINE)
             assert header1 and header2
             assert header1.group(0) == header2.group(0)
 
@@ -511,7 +521,7 @@ class TestDeterministicOrdering:
         c_files = sorted(Path(out).rglob("*.c"))
         lines = []
         for cf in c_files:
-            m = re.search(r"^ \* ORIGIN FILE:.*:(\d+)$", cf.read_text(encoding="utf-8"), re.M)
+            m = re.search(r"^ \* ORIGIN FILE:.*:(\d+)$", cf.read_text(encoding="utf-8"), re.MULTILINE)
             lines.append((cf.name, int(m.group(1)) if m else -1))
         lines.sort(key=lambda t: t[1])
         assert lines[0][1] < lines[1][1]
@@ -522,6 +532,12 @@ class TestDeterministicOrdering:
 # ── Generated corpus compiles under strict gcc ──────────────────────────────
 
 
+RequiresGcc = pytest.mark.skipif(
+    shutil.which("gcc") is None, reason="gcc not available on this host"
+)
+
+
+@RequiresGcc
 class TestGeneratedCCompiles:
     CORPUS = (
         "import numpy as np\n"

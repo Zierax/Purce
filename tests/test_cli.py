@@ -1,10 +1,14 @@
 import json
 import os
+import shutil
 
 import pytest
 from click.testing import CliRunner
 
 from purce.cli import main
+
+_HAS_GCC = shutil.which("gcc") is not None or shutil.which("cc") is not None
+RequiresGcc = pytest.mark.skipif(not _HAS_GCC, reason="gcc not available")
 
 
 @pytest.fixture
@@ -66,6 +70,7 @@ class TestCLICompile:
 
 
 class TestCLIVerify:
+    @RequiresGcc
     def test_verify_basic(self, runner: CliRunner) -> None:
         result = runner.invoke(main, ["verify", "--iterations", "50"])
         assert result.exit_code == 0
