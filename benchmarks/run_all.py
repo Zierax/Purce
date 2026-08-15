@@ -28,7 +28,7 @@ def main() -> int:
         ("Code Quality Metrics", "code_metrics"),
         ("C Code Quality Analysis", "c_code_quality"),
         ("Matrix Multiplication", "benchmark_matmul"),
-        ("Reproducible Corpus Gate (728 kernels)", "reproducible"),
+        ("Reproducible Corpus Gate (812 C kernels, byte-identical)", "reproducible"),
     ]
 
     for name, module in benchmarks:

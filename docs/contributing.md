@@ -45,7 +45,7 @@ make format
 ### Running Tests
 
 ```bash
-# Run all 210 tests
+# Run all 486 tests
 pytest tests/ -v
 
 # Run specific module
@@ -225,7 +225,7 @@ make html
 
 ## Pull Request Checklist
 
-- [ ] All tests pass (210 collected, 168 passing, gcc-dependent tests skip gracefully)
+- [ ] All tests pass (486 collected; gcc-dependent tests skip gracefully without a compiler)
 - [ ] No lint errors (`make lint`)
 - [ ] New features have tests
 - [ ] Documentation updated

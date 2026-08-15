@@ -20,7 +20,6 @@ def _get_platform_info() -> str:
         f"NumPy: {np.__version__}",
     ]
     try:
-        import numpy as np
         blas = np.show_config(mode="dict")
         if blas and "BLAS" in str(blas):
             lines.append("BLAS: detected")

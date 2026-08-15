@@ -5,10 +5,13 @@
 ```
 tests/
 ├── test_ir.py              MathIRNode, MathIRGraph, topological sort
-├── test_parser.py           PythonParser (all 55+ operations)
+├── test_parser.py           PythonParser (parseable NumPy operations)
 ├── test_slicer.py           SemanticSlicer (pruning, classification)
 ├── test_backend.py          C99Generator (headers, naming, output)
 ├── test_verifier.py         DifferentialFuzzer, Z3Verifier, CBackend (requires gcc)
+├── test_coverage_sweep.py   End-to-end coverage sweep (91 reachable kernels vs NumPy)
+├── test_edge_coverage.py    IEEE-754 corner inputs for every element-wise kernel
+├── test_generated_kernel_runtime.py  Runtime correctness gate for generated kernels
 ├── test_cli.py              CLI extract/compile/verify commands
 ├── test_integration.py      Full pipeline integration tests
 ├── test_realworld.py        Real-world ML/scientific pipeline tests
@@ -61,7 +64,7 @@ python -m tests.verification_agent
 
 Runs 5 phases:
 1. **Unit tests**: All pytest tests
-2. **Fuzz tests**: 55+ operations × 1000 iterations (C99 vs Python)
+2. **Fuzz tests**: legacy 25-op fuzzer + full 91-reachable coverage sweep (C99 vs Python)
 3. **Pipeline integration**: All real-world sources
 4. **Synthetic pipeline**: 5 hand-crafted sources
 5. **Memory safety**: Heap-free and provenance verification
@@ -70,7 +73,7 @@ Exit code 0 = all pass, 1 = failure.
 
 ## Test Categories
 
-### Unit Tests (210 total)
+### Unit Tests (486 total)
 
 **Math-IR (`test_ir.py`)**:
 - Node creation and validation
@@ -81,7 +84,7 @@ Exit code 0 = all pass, 1 = failure.
 - Dependency tracking
 
 **Parser (`test_parser.py`)**:
-- All 55+ NumPy operations
+- Full coverage of the 91 reachable kernel bodies
 - Function extraction
 - Type inference
 - Diagnostic generation
@@ -105,8 +108,8 @@ Exit code 0 = all pass, 1 = failure.
 - CMakeLists.txt generation
 - Header file generation
 
-**Verifier (`test_verifier.py`)**:
-- All 55+ fuzz operations
+**Verifier (`test_verifier.py` / `test_coverage_sweep.py`)**:
+- Legacy fuzzer: all 25 operations
 - Z3 verification conditions
 - Tolerance checking
 - Edge case handling
@@ -169,9 +172,9 @@ def my_func(x):
 ## Coverage Targets
 
 - **Math-IR**: 100% of node/graph operations
-- **Parser**: All 55+ operations tested
+- **Parser**: All 91 reachable operations' parse paths tested (+ edge/corner cases)
 - **Slicer**: All dependency types tested
-- **Backend**: All kernel bodies tested
+- **Backend**: All 91 reachable kernel bodies tested (+ documented-unreachable `array_diff`)
 - **Verifier**: All fuzz operations tested
 - **CLI**: All commands tested
 

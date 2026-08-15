@@ -6,8 +6,8 @@
 Python Source → Parser → Math-IR → Slicer → C99 Code → Verifier
     ↓              ↓         ↓         ↓          ↓          ↓
   ast.parse    extract   DAG build   prune    code gen   fuzz+z3
-  25+ ops      kernels   topological dead     headers    25 ops
-  diagnostics           sort        code     headers     87k iter
+  92 bodies    kernels   topological dead     headers    full sweep
+  diagnostics           sort        code     headers    91 reachable
 ```
 
 ## Data Flow
@@ -21,7 +21,8 @@ Python Source → Parser → Math-IR → Slicer → C99 Code → Verifier
 4. **C99 Generator** (`backend/c99_generator.py`): Generates self-contained C99 code with file headers, function headers, zero-heap-allocation math kernels.
 
 5. **Verifier** (`verifier/`):
-   - `fuzzer.py`: Differential testing — compares C output against Python reference (25 ops, configurable iterations).
+   - `fuzzer.py`: Differential testing — compares C output against Python reference (25 legacy ops, configurable iterations).
+   - `coverage_sweep.py`: Compiles every reachable kernel body (91/92 `MATH_KERNEL_BODIES`; `array_diff` is documented-unreachable) and verifies against NumPy over dense grids.
    - `z3_verifier.py`: Symbolic verification using SMT constraints.
 
 ## Key Design Decisions

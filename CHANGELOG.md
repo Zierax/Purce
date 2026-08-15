@@ -15,7 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `MathIRGraph` with iterative topological sort and cycle detection
   - Dependency classification (MATH_KERNEL, SYSTEM_PAL, DATA_ASSET, META_UTIL)
 - **Python Parser**: Extracts math kernels from Python/NumPy source
-  - Supports 55+ NumPy operations
+  - Supports 92 NumPy kernel bodies (91 reachable)
   - Type hint extraction (float32, float64, int32, int64)
   - Structured diagnostics for unsupported constructs
 - **Semantic Slicer**: Call graph analysis and dead code elimination
@@ -28,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Provenance metadata in every generated file
   - Auto-generated CMakeLists.txt
 
-#### Supported Operations (85+)
+#### Supported Operations (91 reachable kernels, 92 bodies)
 - **Element-wise**: add, sub, mul, div, neg, abs, sqrt, exp, log, sin, cos, tan, tanh, power, sign, floor, ceil, trunc, clip, where, greater, less, log10, logaddexp, conj, angle, real, imag, copy, round, isclose, isnan, isinf
 - **Reductions**: sum, mean, max, min, var, prod, cumsum, diff, argmax, argmin, any, all
 - **Matrix**: matmul, transpose, outer, diag, tril, triu, sort
@@ -40,13 +40,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 #### Verification
 - **Z3 SMT Verifier**: Symbolic verification for all operations
   - Dimension bounds, division-by-zero, overflow, non-singular, FFT power-of-two
-- **Differential Fuzzer**: 25 operations, 1000 iterations each
+- **Differential Fuzzer**: 25 legacy operations, 1000 iterations each
   - Random input generation
   - Python reference comparison with configurable tolerance
+- **Full-Coverage Sweep**: every reachable kernel body (91/92; `array_diff` documented-unreachable) verified against NumPy over dense grids at multiple scales
 - **5-Phase Verification Agent**:
-  1. Unit tests (210 tests)
-  2. Fuzz tests (25 ops × 1000 iterations = 25,000 test cases)
-  3. Pipeline integration (real-world ML sources: 23 files → 806 C kernels, 100% clean)
+  1. Unit tests (486 tests)
+  2. Fuzz tests (25 legacy ops + 91-reachable coverage sweep)
+  3. Pipeline integration (real-world ML sources: 23 files → 499 C kernels, 100% clean)
   4. Synthetic pipeline sanity checks
   5. Memory safety verification (heap-free, provenance)
 
@@ -57,9 +58,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Target profiles: `generic-c99`, `bare-arm-q31`, `bare-arm-q15`
 
 #### Testing
-- 210 tests across 10 test modules (168 passing, 42 skipped when gcc unavailable)
-- Real-world test projects: 23 ML/scientific source files (802 C kernels generated)
-- Semantic compiler features: multi-statement decomposition, recursive expression decomposition, .shape/.transpose resolution, 85+ operations
+- 486 tests across 14 test modules (gcc-dependent tests skip when gcc unavailable)
+- Real-world test projects: 23 ML/scientific source files (499 C kernels generated)
+- Semantic compiler features: multi-statement decomposition, recursive expression decomposition, .shape/.transpose resolution, 91 reachable kernels
 - C compilation verification tests (requires gcc)
 - Full pipeline integration tests
 
@@ -106,9 +107,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **911 C functions** generated from 23 realworld test files (was 566)
+- **Full-coverage verification sweep** (`coverage_sweep.py`): compiles every reachable
+  kernel body in `MATH_KERNEL_BODIES` and verifies each against its NumPy reference over
+  dense grid sizes (8×8 → 2000×80) under multiple seeds — 92 total bodies, 91 reachable
+  (`array_diff` is a documented-unreachable body), all matching.
+- **Stress-scale sweeps**: dense grid sizes from 8×8 up to 2000×80 (plus linalg/FFT
+  single-dimension inputs) across multiple seeds — 91/91 kernels reachable in every
+  step, with the full mega-sweep covering ~14.5M kernel cases.
+- **Edge/corner case coverage** (`test_edge_coverage.py`): IEEE-754 corner inputs and
+  boundary shapes for every element-wise kernel (0% crash rate).
+- **Reproducible corpus gate hardening**: extraction output is now byte-identical
+  regardless of `PYTHONHASHSEED` (see Fixed), making the committed
+  `benchmarks/baseline.json` a true drift detector.
+- **499 C kernels** generated from 23 realworld test files
 - **0 unresolved inputs** (was 169/18.4%)
-- **85+ NumPy operations** with full C99 implementations
+- **92 NumPy kernel bodies** with full C99 implementations (91 reachable)
 - Multi-statement body decomposition with symbol table tracking
 - Recursive expression decomposition for nested BinOps/Calls
 - If/else control flow as conditional IR nodes (element_where)
@@ -130,6 +143,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `.T` transpose on Call results (e.g. `mel_filterbank(...).T`)
 
 ### Fixed
+- **Corpus-gate non-determinism**: caller→callee edges were stored in a Python `set`
+  and iterated unsorted (`builder.py` `_wire_caller_roots`), so emitted `nested_deps`
+  order depended on the per-process `PYTHONHASHSEED`. Callees are now iterated in
+  sorted order, making generated provenance byte-reproducible across processes and
+  machines.
 - **Semantic Slicer dropped `scalar_constants`** when copying nodes, causing scalar
   constants to emit as invalid `double _const_N[i]` array indexing — now preserved
   through both `slice()` and `resolve_transitive_deps()`

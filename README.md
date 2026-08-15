@@ -73,7 +73,7 @@ Purce is a semantic compiler that takes Python/NumPy code and produces clean, se
    - Recursive expression decomposition: handles nested BinOps, UnaryOps, and composed calls
    - Guard clause extraction: processes numpy calls inside if/else blocks
    - Scalar constant extraction: resolves constant assignments and literal values
-   - 85+ NumPy operations mapped to C99 algorithm identifiers
+   - 92 C99 kernel bodies (91 reachable from the full coverage sweep) mapped to C99 algorithm identifiers
 3. **Semantic Slicer** — Resolves call graphs, eliminates dead code, classifies dependencies (math kernel vs PAL vs data asset)
 4. **C99 Backend** — Generates C99 code programmatically via Python string templates in `c99_generator.py`, following the C99-SOS standard
 5. **Verification** — Compiles generated C99 to a shared library via gcc, loads via ctypes, and performs differential fuzzing comparing compiled C output against Python reference implementations. Z3 SMT for bounds checking.
@@ -171,7 +171,8 @@ Run the full verification suite: Z3 SMT bounds checking + differential fuzzing.
 purce verify [OPTIONS]
 
 Options:
-  --iterations N          Fuzzing iterations per operation (default: 1000)
+  --iterations N          Fuzzing iterations per operation (default: 10000)
+  --seed N                Random seed for reproducible fuzzing
 ```
 
 ---
@@ -288,13 +289,6 @@ Every generated file follows the **C99 Semantic Output Standard** — a strict c
 | `numpy.expand_dims(x, axis)` | `array_expand_dims` |
 | `numpy.flatten(x)` | `array_flatten` |
 
-| Python | C99 Algorithm |
-|--------|---------------|
-| `numpy.sum(x)` | `reduce_sum` |
-| `numpy.mean(x)` | `reduce_mean` |
-| `numpy.max(x)` | `reduce_max` |
-| `numpy.min(x)` | `reduce_min` |
-
 ### FFT
 
 | Python | C99 Algorithm |
@@ -322,7 +316,11 @@ For each supported operation, Purce compiles the generated C99 code into a share
 2. **Target**: Compiled C99 code (called via ctypes)
 3. **Tolerance**: Configurable per-operation
 
-The `ctypes_bridge.py` module handles C99 compilation, shared library loading, and typed call interfaces for all 25 operations.
+The `ctypes_bridge.py` module handles C99 compilation, shared library loading, and typed call interfaces for all 25 legacy fuzz operations.
+
+### Full-Coverage Sweep
+
+`coverage_sweep.py` compiles **every reachable kernel body** in `c99_generator.MATH_KERNEL_BODIES` and verifies each against its NumPy reference over a dense parameter grid. `array_diff` is deliberately excluded as a known-unreachable body (no `BODY_PARAM_MAP` entry). The sweep is run at every scale from 8×8 to 2000×80 under multiple seeds — 91/91 kernels reachable, all matching.
 
 ### Z3 SMT Bounds Checking
 
@@ -356,12 +354,14 @@ purce/
 │       ├── z3_verifier.py       # SMT bounds checking
 │       ├── fuzzer.py            # Differential fuzzing
 │       └── ctypes_bridge.py     # C99 compilation + ctypes loading
-├── tests/                       # 210 tests (168 passing, 42 skipped)
+├── tests/                       # 486 tests (gcc-dependent tests skip without a compiler)
 │   ├── test_ir.py               # Math-IR node and graph tests
 │   ├── test_parser.py           # Python parser tests
 │   ├── test_slicer.py           # Semantic slicer tests
 │   ├── test_backend.py          # C99 generator tests
 │   ├── test_verifier.py         # Fuzzer, Z3, ctypes tests
+│   ├── test_coverage_sweep.py   # End-to-end full-coverage sweep (91 reachable kernels)
+│   ├── test_edge_coverage.py    # Edge/corner case coverage
 │   ├── test_integration.py      # Full pipeline tests
 │   ├── test_realworld.py        # Real-world ML code tests
 │   ├── test_c_compilation.py    # C compilation verification (requires gcc)
@@ -369,7 +369,7 @@ purce/
 │   ├── verification_agent.py    # 5-phase verification agent
 │   ├── fixtures/                # Sample Python files
 │   └── realworld/               # 23 ML/scientific test sources
-├── benchmarks/                  # 7 benchmark scripts
+├── benchmarks/                  # 10 benchmark scripts + coverage sweep harness
 ├── docs/                        # Documentation
 ├── pyproject.toml
 └── README.md

@@ -313,3 +313,35 @@ class TestPortabilityAcrossCheckouts:
         baseline_path.write_text(json.dumps({"seed": 42, "content_sha256": "abc"}), encoding="utf-8")
         loaded = reproducible.load_baseline(baseline_path)
         assert loaded == {"seed": 42, "content_sha256": "abc"}
+
+
+class TestHashSeedIndependence:
+    """Extraction output must be byte-identical regardless of PYTHONHASHSEED.
+
+    Regression test for the pre-v0.1-beta non-determinism: the builder stored
+    caller->callee edges in a plain set and iterated them unsorted, so emitted
+    ``nested_deps`` (and generated provenance) varied process-to-process. The
+    builder now iterates callees in sorted order, so generated output is
+    byte-reproducible across processes and machines.
+    """
+
+    def test_extraction_is_hash_seed_independent(self, tmp_path: Path) -> None:
+        import subprocess
+        import sys
+
+        corpus = tmp_path / "src"
+        _write_corpus(corpus)
+        out_a = tmp_path / "out_a"
+        out_b = tmp_path / "out_b"
+        root = Path(__file__).resolve().parents[1]
+        for seed, out in (("1", out_a), ("2", out_b)):
+            r = subprocess.run(
+                [sys.executable, "-m", "purce.cli", "extract",
+                 str(corpus), "-o", str(out)],
+                cwd=root, capture_output=True, text=True, timeout=600,
+                env={"PYTHONHASHSEED": seed, **{k: v for k, v in __import__("os").environ.items()}},
+            )
+            assert r.returncode == 0, r.stderr[-500:]
+        hash_a = reproducible.content_hash(out_a)
+        hash_b = reproducible.content_hash(out_b)
+        assert hash_a == hash_b

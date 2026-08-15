@@ -9,6 +9,8 @@ import math
 import time
 from dataclasses import dataclass, field
 
+import numpy as np
+
 from purce.verifier.fuzzer import DifferentialFuzzer
 
 try:
@@ -67,7 +69,7 @@ def _test_element_add_edge_cases(c_caller=None) -> EdgeCaseSuite:
     for name, a, b, notes in cases:
         py_result = a + b
         if c_caller:
-            actual = c_caller.add(a, b)
+            actual = c_caller.element_add([a], [b], 1)[0]
             tested_c = True
             passed = (math.isnan(py_result) and math.isnan(actual)) or (py_result == actual)
             actual_str = str(actual)
@@ -97,7 +99,7 @@ def _test_element_mul_edge_cases(c_caller=None) -> EdgeCaseSuite:
     for name, a, b, notes in cases:
         py_result = a * b
         if c_caller:
-            actual = c_caller.mul(a, b)
+            actual = c_caller.element_mul([a], [b], 1)[0]
             tested_c = True
             passed = (math.isnan(py_result) and math.isnan(actual)) or (py_result == actual)
             actual_str = str(actual)
@@ -125,9 +127,10 @@ def _test_element_div_edge_cases(c_caller=None) -> EdgeCaseSuite:
         ("1 / inf", 1.0, float('inf'), "Converges to zero"),
     ]
     for name, a, b, notes in cases:
-        py_result = a / b
+        with np.errstate(divide="ignore", invalid="ignore"):
+            py_result = float(np.divide(a, b))
         if c_caller:
-            actual = c_caller.div(a, b)
+            actual = c_caller.element_div([a], [b], 1)[0]
             tested_c = True
             passed = (math.isnan(py_result) and math.isnan(actual)) or (py_result == actual)
             actual_str = str(actual)
@@ -156,7 +159,7 @@ def _test_reduce_sum_edge_cases(c_caller=None) -> EdgeCaseSuite:
     for name, inputs, notes in cases:
         py_result = sum(inputs)
         if c_caller:
-            actual = c_caller.reduce_sum(inputs)
+            actual = c_caller.reduce_sum(inputs, len(inputs))
             tested_c = True
             passed = (math.isnan(py_result) and math.isnan(actual)) or (py_result == actual)
             actual_str = str(actual)
@@ -185,7 +188,7 @@ def _test_reduce_max_edge_cases(c_caller=None) -> EdgeCaseSuite:
     for name, inputs, notes in cases:
         py_result = max(inputs)
         if c_caller:
-            actual = c_caller.reduce_max(inputs)
+            actual = c_caller.reduce_max(inputs, len(inputs))
             tested_c = True
             passed = (math.isnan(py_result) and math.isnan(actual)) or (py_result == actual)
             actual_str = str(actual)
@@ -240,7 +243,7 @@ def _test_matmul_edge_cases(c_caller=None) -> EdgeCaseSuite:
 def _test_fft_edge_cases(c_caller=None) -> EdgeCaseSuite:
     suite = EdgeCaseSuite(operation="fft")
     cases = [
-        ("impulse", [1.0, 0.0], [1.0, 0.0], "Impulse = DC"),
+        ("impulse", [1.0, 0.0], [1.0, 1.0], "Impulse has a flat spectrum"),
         ("dc_signal", [1.0, 1.0], [2.0, 0.0], "DC concentrates at DC"),
         ("alternating", [1.0, -1.0], [0.0, 2.0], "Alternating = Nyquist"),
     ]
@@ -296,7 +299,7 @@ def run_all_edge_case_tests() -> list[EdgeCaseSuite]:
         suites.append(test_fn(c_caller))
 
     if c_caller:
-        c_caller.handle.close()
+        compiled.close()
 
     return suites
 

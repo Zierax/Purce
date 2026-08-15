@@ -384,10 +384,13 @@ class MathIRBuilder:
             if node is not None:
                 func_roots[node.origin_symbol] = nid
 
-        # Wire callee roots into every caller node.
+        # Wire callee roots into every caller node. Iterate callees in sorted
+        # order: `self._callees` stores a set, so unordered iteration would make
+        # the emitted `nested_deps` (and generated provenance) depend on the
+        # per-process PYTHONHASHSEED — breaking the reproducible corpus gate.
         for caller, callees in self._callees.items():
             caller_sym = f"{module_name}.{caller}"
-            for callee in callees:
+            for callee in sorted(callees):
                 callee_root = func_roots.get(f"{module_name}.{callee}")
                 if callee_root is None:
                     continue

@@ -264,9 +264,9 @@ MATH_KERNEL_BODIES: dict[str, str] = {
         C[i] = A[i] * B[i];
     }""",
     "element_div": """\
-    /* Element-wise division: C[i] = A[i] / B[i] (with div-by-zero guard) */
+    /* Element-wise division: C[i] = A[i] / B[i] (IEEE 754: x/0 = +/-inf, 0/0 = NaN) */
     for (int i = 0; i < n; i++) {
-        C[i] = (B[i] != 0.0) ? (A[i] / B[i]) : 0.0;
+        C[i] = A[i] / B[i];
     }""",
     "reduce_sum": """\
     /* Reduction sum: result = sum(x[0..n-1]) */
@@ -823,17 +823,19 @@ MATH_KERNEL_BODIES: dict[str, str] = {
         eigenvalues[i] = center;
     }""",
     "array_sort": """\
-    /* Simple insertion sort (stable, O(n^2) but fine for small arrays) */
+    /* Insertion sort (stable, O(n^2) but fine for small arrays) */
+    double tmp[n];
+    for (int i = 0; i < n; i++) { tmp[i] = x[i]; }
     for (int i = 1; i < n; i++) {
-        double key = x[i];
+        double key = tmp[i];
         int j = i - 1;
-        while (j >= 0 && x[j] > key) {
-            out[j + 1] = x[j];
+        while (j >= 0 && tmp[j] > key) {
+            tmp[j + 1] = tmp[j];
             j--;
         }
-        out[j + 1] = key;
+        tmp[j + 1] = key;
     }
-    if (n > 0) out[0] = x[0];""",
+    for (int i = 0; i < n; i++) { out[i] = tmp[i]; }""",
     "linalg_det": """\
     /* Determinant via LU decomposition */
     double det = 1.0;
@@ -904,7 +906,7 @@ MATH_KERNEL_BODIES: dict[str, str] = {
     for (int i = 0; i < n; i++) { out[i] = floor(x[i] + 0.5); }""",
     "element_ceil": """\
     for (int i = 0; i < n; i++) {
-        out[i] = (x[i] == (double)(int)x[i]) ? x[i] : (double)((int)x[i] + 1);
+        out[i] = ceil(x[i]);
     }""",
     "element_trunc": """\
     for (int i = 0; i < n; i++) { out[i] = (double)(int)x[i]; }""",
@@ -947,15 +949,33 @@ MATH_KERNEL_BODIES: dict[str, str] = {
     }
     out[0] = (double)count;""",
     "array_unique": """\
-    int count = 0;
-    for (int i = 0; i < n; i++) {
-        int found = 0;
-        for (int j = 0; j < count; j++) {
-            if (x[i] == out[j]) { found = 1; break; }
-        }
-        if (!found) out[count++] = x[i];
+    /* np.unique semantics: sorted unique values in out[0..k-1] and the
+     * per-value occurrence counts (in the same order) in out_count[0..k-1].
+     * The kernel writes k = out_count[0]; the caller sizes buffers to n. */
+    double tmp[n];
+    for (int i = 0; i < n; i++) { tmp[i] = x[i]; }
+    for (int i = 1; i < n; i++) {
+        double key = tmp[i];
+        int j = i - 1;
+        while (j >= 0 && tmp[j] > key) { tmp[j + 1] = tmp[j]; j--; }
+        tmp[j + 1] = key;
     }
-    out_count[0] = (double)count;""",
+    int g = 0;
+    int count = 1;
+    for (int i = 1; i < n; i++) {
+        if (tmp[i] != tmp[i - 1]) {
+            out[g] = tmp[i - 1];
+            out_count[g] = (double)count;
+            g++;
+            count = 1;
+        } else {
+            count++;
+        }
+    }
+    if (n > 0) {
+        out[g] = tmp[n - 1];
+        out_count[g] = (double)count;
+    }""",
     "linalg_qr": """\
     /* Simplified: copy input as Q, set R = I (stub for Gram-Schmidt) */
     for (int i = 0; i < n * n; i++) out_q[i] = x[i];
@@ -1043,7 +1063,18 @@ def _build_body_param_mapping(node: MathIRNode) -> dict[str, str]:
     return mapping
 
 
-def _substitute_body_params(body: str, mapping: dict[str, str], scalar_constants: dict[str, float] | None = None, scalar_params: set[str] | None = None) -> str:
+def _format_const_literal(v: float, force_float: bool = False) -> str:
+    """Format a scalar constant for inline emission."""
+    if not force_float:
+        if v == int(v) and abs(v) < 1e15:
+            return str(int(v))
+        return f"{v:.6g}"
+    if v == int(v) and abs(v) < 1e15:
+        return f"{int(v)}.0"
+    return f"{v:.6g}"
+
+
+def _substitute_body_params(body: str, mapping: dict[str, str], scalar_constants: dict[str, float] | None = None, scalar_params: set[str] | None = None, float_const_names: set[str] | None = None) -> str:
     """Substitute canonical parameter names in kernel body with IR parameter names.
 
     Uses longest-match-first to avoid partial replacements (e.g. 'out' before 'out_real').
@@ -1067,10 +1098,9 @@ def _substitute_body_params(body: str, mapping: dict[str, str], scalar_constants
 
     if scalar_constants:
         for mapped_name, const_val in scalar_constants.items():
-            if const_val == int(const_val) and abs(const_val) < 1e15:
-                const_str = str(int(const_val))
-            else:
-                const_str = f"{const_val:.6g}"
+            const_str = _format_const_literal(
+                const_val, force_float=float_const_names is not None and mapped_name in float_const_names
+            )
             body = re.sub(
                 r'\b' + re.escape(mapped_name) + r'\s*\[\s*(?:[A-Za-z_]\w*)\s*\]',
                 const_str,
@@ -1340,11 +1370,12 @@ class C99Generator:
                 'const', 'restrict', 'unsigned', 'long', 'short', 'char',
                 'memset', 'memcpy', 'fabs', 'sqrt', 'exp', 'log', 'sin', 'cos',
                 'tan', 'tanh', 'pow', 'atan2', 'fmin', 'fmax', 'floor', 'ceil', 'signbit',
+                'log10', 'log1p',
                 'M_PI', 'size_t', 'uint8_t', 'int32_t', 'uint32_t',
                 'continue', 'break', 'do',
             }
             _mapped_names = set(mapping.values())
-            _loop_vars = {'i', 'j', 'k', 't', 'u', 'bit', 'mask', 'col', 'row', 'half', 'size', 'factor', 'max_row', 'min_val', 'max_val', 'sum', 'a_ik', 'pivot', 'center', 'radius', 'angle', 'cur_w_re', 'cur_w_im', 'new_w_re', 'new_w_im', 'tmp_re', 'tmp_im', 'u_idx', 't_idx', 'aug', 'denom', 'val', 'cond', 'a_val', 'b_val', 's', 'out', 'eigenvalues', 'L', 'idx_val', 'v', 'state', 'key', 'key_idx', 'tmp', 'a_max', 'a_min', 'norm_sum', 'var_mean', 'var_sum', 'd', 'n_out', 'n_a', 'n_b', 'spec', 'h', 'per_iter', 'n_iters', 'all_val', 'any_val', 'prod', 'cum', 'count', 'det', 'lu', 'min_idx', 'max_idx', 'purce_rng_state'}
+            _loop_vars = {'i', 'j', 'k', 't', 'u', 'bit', 'mask', 'col', 'row', 'half', 'size', 'factor', 'max_row', 'min_val', 'max_val', 'sum', 'a_ik', 'pivot', 'center', 'radius', 'angle', 'cur_w_re', 'cur_w_im', 'new_w_re', 'new_w_im', 'tmp_re', 'tmp_im', 'u_idx', 't_idx', 'aug', 'denom', 'val', 'cond', 'a_val', 'b_val', 's', 'out', 'eigenvalues', 'L', 'idx_val', 'v', 'state', 'key', 'key_idx', 'tmp', 'a_max', 'a_min', 'norm_sum', 'var_mean', 'var_sum', 'd', 'n_out', 'n_a', 'n_b', 'spec', 'h', 'per_iter', 'n_iters', 'all_val', 'any_val', 'prod', 'cum', 'count', 'det', 'lu', 'min_idx', 'max_idx', 'r', 'idx', 'g', 't_re', 't_im', 'w_re', 'w_im', 'purce_rng_state'}
             _canon_valid = set(mapping.keys())
             _const_names = set(scalar_constants.keys())
             _unresolved = _body_ids - _c_builtins - _mapped_names - _canon_valid - _loop_vars - _const_names
@@ -1356,7 +1387,12 @@ class C99Generator:
                     for n, dt, s in node.inputs
                     if s != "array" and not (isinstance(s, str) and s.startswith("("))
                 }
-                body = _substitute_body_params(raw_body, mapping, scalar_constants, scalar_params)
+                float_const_names = {
+                    mapping.get(n, n)
+                    for n, dt, s in node.inputs
+                    if dt in (Dtype.FLOAT32, Dtype.FLOAT64)
+                } & set(scalar_constants)
+                body = _substitute_body_params(raw_body, mapping, scalar_constants, scalar_params, float_const_names)
 
             def _inline_const(nm: str) -> str | None:
                 if nm in scalar_constants:
@@ -1442,6 +1478,10 @@ class C99Generator:
             "#include <stdint.h>",
             "#include <math.h>",
             "#include <string.h>",
+            "",
+            "#ifndef M_PI",
+            "#define M_PI 3.14159265358979323846",
+            "#endif",
             "",
         ]
         if rng_state_role is not None:

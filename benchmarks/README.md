@@ -94,3 +94,17 @@ Runs all benchmarks in sequence with timing.
 ```bash
 python -m benchmarks.run_all
 ```
+
+### 8. Reproducible Corpus Gate (`reproducible.py`)
+
+Extracts the 14 harder real-world kernels in `benchmarks/corpus/`, fingerprints the
+full environment, compiles every generated `.c` with strict gcc, hashes the
+normalized content, and verifies drift against the committed `benchmarks/baseline.json`.
+
+```bash
+python -m benchmarks.reproducible --baseline benchmarks/baseline.json
+```
+
+Extraction output is byte-reproducible across processes: caller→callee edges are
+iterated in sorted order, so the emitted `nested_deps` (and provenance) no longer
+depend on the per-process `PYTHONHASHSEED`.
