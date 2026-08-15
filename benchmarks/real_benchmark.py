@@ -124,9 +124,13 @@ def run_benchmarks() -> str:
     lines.append("")
     lines.append("| File | Nodes | C Files | Clean | #error | C Lines | Time (ms) |")
     lines.append("|------|-------|---------|-------|--------|---------|-----------|")
+    rw_nodes: list[int] = []
+    rw_times: list[float] = []
     for rwf in rw_files:
         src = _load_file(os.path.join(realworld_dir, rwf))
         r = _bench_pipeline(src, rwf.replace(".py", ""))
+        rw_nodes.append(r["nodes"])
+        rw_times.append(r["time_ms"] / 1000.0)
         lines.append(f"| {rwf} | {r['nodes']} | {r['c_files']} | {r['clean_files']} | {r['error_files']} | {r['total_c_lines']} | {r['time_ms']:.1f} |")
 
     # ── Section 2: Verification ──
@@ -216,13 +220,13 @@ def run_benchmarks() -> str:
     lines.append("| Metric | Value |")
     lines.append("|--------|-------|")
     lines.append(f"| Python source files processed | {len(rw_files) + len(fixtures_files)} |")
-    lines.append(f"| Total Math-IR nodes extracted | {r['nodes']} |")
+    lines.append(f"| Total Math-IR nodes extracted | {sum(rw_nodes)} |")
     lines.append(f"| Generated .c files | {len(c_files)} |")
     lines.append(f"| Clean compilable files | {len(clean_files)} ({len(clean_files)/max(len(c_files),1)*100:.0f}%) |")
     lines.append(f"| Files with #error | {len(error_files)} ({len(error_files)/max(len(c_files),1)*100:.0f}%) |")
     lines.append(f"| Z3 verified nodes | {verified}/{len(reports)} |")
-    lines.append(f"| Fuzz operations passed | {sum(1 for r in fuzz_results.values() if r.all_passed)}/25 |")
-    lines.append(f"| Pipeline time (all files) | {(time.time() % 1000):.1f}s |")
+    lines.append(f"| Fuzz operations passed | {sum(1 for rr in fuzz_results.values() if rr.all_passed)}/{len(fuzz_results)} |")
+    lines.append(f"| Pipeline time (all files) | {sum(rw_times):.1f}s |")
     lines.append("")
 
     return "\n".join(lines)

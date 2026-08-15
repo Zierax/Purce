@@ -24,22 +24,24 @@ Python Source → Parser → Math-IR → Slicer → C99 Code → Verifier
    - `fuzzer.py`: Differential testing — compares C output against Python reference (25 legacy ops, configurable iterations).
    - `coverage_sweep.py`: Compiles every reachable kernel body (91/92 `MATH_KERNEL_BODIES`; `array_diff` is documented-unreachable) and verifies against NumPy over dense grids.
    - `z3_verifier.py`: Symbolic verification using SMT constraints.
+   - `equivalence.py`: End-to-end kernel equivalence engine used by `test_generated_kernel_runtime.py` and `test_reproducible.py`.
 
 ## Key Design Decisions
 
 - **DAG representation**: Enables topological sort for deterministic code generation and dependency tracking.
 - **Zero heap allocation**: Math kernels use stack arrays only — suitable for embedded/real-time targets.
 - **Provenance tracking**: Every generated C file and function carries origin metadata (source file, line, commit, signature).
-- **Algorithm mapping**: `MATH_KERNEL_BODIES` in c99_generator.py maps 25 algorithms to C implementations.
-- **No Jinja2**: All C code generated programmatically (previously used templates, now removed).
+- **Algorithm mapping**: `MATH_KERNEL_BODIES` in c99_generator.py maps 92 kernel bodies (91 reachable) to C implementations.
+- **No Jinja2**: All C code generated programmatically (no template engine).
 
 ## Operation Categories
 
 | Category | Operations |
 |----------|-----------|
-| Element-wise arithmetic | add, sub, mul, div, neg, abs, sqrt, exp, log, sin, cos, tan, power |
-| Reduction | sum, mean, max, min |
-| Matrix | matmul, transpose |
-| Linear algebra | solve, inverse, determinant, cholesky, eig |
+| Element-wise arithmetic | add, sub, mul, div, neg, abs, sqrt, exp, log, sin, cos, tan, tanh, power, sign, floor, ceil, trunc, clip, round, isclose, isnan, isinf, greater, less, log10, logaddexp, conj, angle, real, imag, copy, where, maximum, minimum |
+| Reduction | sum, mean, max, min, var, prod, cumsum, diff, argmax, argmin, any, all |
+| Matrix | matmul, transpose, outer, diag, tril, triu, sort |
+| Linear algebra | solve, inverse, cholesky, eig, det, norm, qr, svd |
 | Signal processing | fft, ifft |
-| Sorting | sort |
+| Allocation | zeros, ones, eye, arange, linspace, full, full_like, ones_like, zeros_like, random |
+| Array ops | concatenate, take, argsort, permutation, reshape, squeeze, expand_dims, flatten, tile, repeat, flip, roll, split, unique, searchsorted, stack, vstack, hstack |

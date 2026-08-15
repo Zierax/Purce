@@ -75,7 +75,7 @@ Purce is a semantic compiler that takes Python/NumPy code and produces clean, se
    - Scalar constant extraction: resolves constant assignments and literal values
    - 92 C99 kernel bodies (91 reachable from the full coverage sweep) mapped to C99 algorithm identifiers
 3. **Semantic Slicer** — Resolves call graphs, eliminates dead code, classifies dependencies (math kernel vs PAL vs data asset)
-4. **C99 Backend** — Generates C99 code programmatically via Python string templates in `c99_generator.py`, following the C99-SOS standard
+4. **C99 Backend** — Generates C99 code programmatically in `c99_generator.py` (no template engine), following the C99-SOS standard
 5. **Verification** — Compiles generated C99 to a shared library via gcc, loads via ctypes, and performs differential fuzzing comparing compiled C output against Python reference implementations. Z3 SMT for bounds checking.
 
 ---
@@ -145,8 +145,11 @@ Options:
   --target {generic-c99,bare-arm-q31,bare-arm-q15}
                           Target profile (default: generic-c99)
   -o, --output PATH       Output directory (default: out/)
+  --embed-assets          Embed data assets instead of erroring
+  --amalgamate            Generate single .c/.h output
   --verbose               Show extraction diagnostics
   --provenance-only       Generate manifest without code
+  --entry NAME            Only emit this top-level function (repeatable)
 ```
 
 ### `purce compile`
@@ -160,7 +163,11 @@ Options:
   --target {generic-c99,bare-arm-q31,bare-arm-q15}
                           Target profile (default: generic-c99)
   -o, --output PATH       Output directory (default: out/)
+  --embed-assets          Embed data assets instead of erroring
+  --amalgamate            Generate single .c/.h output
+  --verbose               Show compilation diagnostics
   --verify                Run Z3 + differential fuzzing after compilation
+  --entry NAME            Only emit this top-level function (repeatable)
 ```
 
 ### `purce verify`
@@ -316,11 +323,11 @@ For each supported operation, Purce compiles the generated C99 code into a share
 2. **Target**: Compiled C99 code (called via ctypes)
 3. **Tolerance**: Configurable per-operation
 
-The `ctypes_bridge.py` module handles C99 compilation, shared library loading, and typed call interfaces for all 25 legacy fuzz operations.
+The `ctypes_bridge.py` module handles C99 compilation, shared library loading, and typed call interfaces for every kernel body with a `BODY_PARAM_MAP` entry (91 reachable bodies).
 
 ### Full-Coverage Sweep
 
-`coverage_sweep.py` compiles **every reachable kernel body** in `c99_generator.MATH_KERNEL_BODIES` and verifies each against its NumPy reference over a dense parameter grid. `array_diff` is deliberately excluded as a known-unreachable body (no `BODY_PARAM_MAP` entry). The sweep is run at every scale from 8×8 to 2000×80 under multiple seeds — 91/91 kernels reachable, all matching.
+`coverage_sweep.py` compiles **every reachable kernel body** in `c99_generator.MATH_KERNEL_BODIES` and verifies each against its NumPy reference (or documented structural invariants) over randomly generated inputs under multiple seeds. `array_diff` is deliberately excluded as a known-unreachable body (no `BODY_PARAM_MAP` entry). The sweep verifies 91/91 reachable kernels, all matching.
 
 ### Z3 SMT Bounds Checking
 
@@ -350,18 +357,30 @@ purce/
 │   │   └── semantic_slicer.py   # Dead code elimination, call graph
 │   ├── backend/
 │   │   └── c99_generator.py     # C99 code generation
-│   └── verifier/
-│       ├── z3_verifier.py       # SMT bounds checking
-│       ├── fuzzer.py            # Differential fuzzing
-│       └── ctypes_bridge.py     # C99 compilation + ctypes loading
-├── tests/                       # 486 tests (gcc-dependent tests skip without a compiler)
+│   ├── verifier/
+│   │   ├── z3_verifier.py       # SMT bounds checking
+│   │   ├── fuzzer.py            # Differential fuzzing
+│   │   ├── ctypes_bridge.py     # C99 compilation + ctypes loading
+│   │   ├── coverage_sweep.py    # Full-coverage sweep (91 reachable kernels)
+│   │   └── equivalence.py       # End-to-end kernel equivalence engine
+│   └── runtime/
+│       ├── emitter.py           # Tier-R runtime emitter
+│       ├── differential.py      # Python vs compiled runtime comparison
+│       └── c_parts/             # Runtime C source parts
+├── tests/                       # 487 tests (gcc-dependent tests skip without a compiler)
 │   ├── test_ir.py               # Math-IR node and graph tests
+│   ├── test_ir_coverage_a.py    # IR builder coverage (34 tests)
+│   ├── test_ir_coverage_b.py    # IR builder coverage (28 tests)
+│   ├── test_ir_coverage_c.py    # IR builder coverage (29 tests)
 │   ├── test_parser.py           # Python parser tests
 │   ├── test_slicer.py           # Semantic slicer tests
 │   ├── test_backend.py          # C99 generator tests
 │   ├── test_verifier.py         # Fuzzer, Z3, ctypes tests
+│   ├── test_verifier_edges.py   # Verifier edge/corner cases (62 tests)
 │   ├── test_coverage_sweep.py   # End-to-end full-coverage sweep (91 reachable kernels)
-│   ├── test_edge_coverage.py    # Edge/corner case coverage
+│   ├── test_edge_coverage.py    # IEEE-754 edge/corner case coverage
+│   ├── test_generated_kernel_runtime.py  # Runtime correctness gate
+│   ├── test_reproducible.py     # Reproducible corpus gate determinism
 │   ├── test_integration.py      # Full pipeline tests
 │   ├── test_realworld.py        # Real-world ML code tests
 │   ├── test_c_compilation.py    # C compilation verification (requires gcc)
@@ -369,7 +388,8 @@ purce/
 │   ├── verification_agent.py    # 5-phase verification agent
 │   ├── fixtures/                # Sample Python files
 │   └── realworld/               # 23 ML/scientific test sources
-├── benchmarks/                  # 10 benchmark scripts + coverage sweep harness
+├── benchmarks/                  # Benchmark scripts + reproducible corpus gate
+├── scripts/                     # Developer tooling (pre-commit, setup.sh)
 ├── docs/                        # Documentation
 ├── pyproject.toml
 └── README.md

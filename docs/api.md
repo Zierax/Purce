@@ -18,10 +18,11 @@ purce extract <SOURCE_DIR> [OPTIONS]
 - `--amalgamate` — Generate single .c/.h output
 - `--verbose` — Show extraction diagnostics
 - `--provenance-only` — Generate manifest without code
+- `--entry NAME` — Only emit this top-level function (repeatable)
 
 **Exit Codes:**
-- `0` — Success
-- `1` — No Python files found, or data assets without `--embed-assets`
+- `0` — Success (also used when no math kernels are found, with a warning)
+- `1` — Data assets found without `--embed-assets`
 
 **Example:**
 ```bash
@@ -58,6 +59,11 @@ purce compile <SOURCE_DIR> [OPTIONS]
 - `--amalgamate` — Generate single .c/.h output
 - `--verbose` — Show compilation diagnostics
 - `--verify` — Run Z3 + differential fuzzing after compilation
+- `--entry NAME` — Only emit this top-level function (repeatable)
+
+**Exit Codes:**
+- `0` — Success (also used when no math kernels are found, with a warning)
+- `1` — No Python files found, data assets without `--embed-assets`, Z3 `SAT` counterexample (`--verify`), or fuzz failure (`--verify`)
 
 **Example:**
 ```bash
@@ -89,6 +95,12 @@ purce verify [OPTIONS]
 
 **Options:**
 - `--iterations N` — Fuzzing iterations per operation (default: 10000)
+- `--seed N` — Random seed for reproducible fuzzing
+
+**Exit Codes:**
+- `0` — All operations passed differential fuzzing against compiled C
+- `1` — Z3 verification violation (SAT), fuzz failure, or Z3 unavailable
+- `3` — No C compiler available; results were Python self-comparison only (unverified)
 
 **Example:**
 ```bash

@@ -28,11 +28,13 @@ Python/NumPy → Parser → Math-IR → Slicer → C99 Generator → Verified Ou
 The parser uses Python's `ast` module to extract function definitions and detect NumPy operations.
 
 **Supported operations:**
-- Element-wise: `np.add`, `np.subtract`, `np.multiply`, `np.divide`, `np.abs`, `np.sqrt`, `np.exp`, `np.log`, `np.sin`, `np.cos`, `np.tan`
-- Reductions: `np.sum`, `np.mean`, `np.max`, `np.min`
-- Linear algebra: `np.matmul`, `np.linalg.solve`, `np.linalg.inv`, `np.linalg.cholesky`, `np.linalg.eig`
+- Element-wise: `np.add`, `np.subtract`, `np.multiply`, `np.divide`, `np.abs`, `np.sqrt`, `np.exp`, `np.log`, `np.sin`, `np.cos`, `np.tan`, `np.tanh`, `np.sign`, `np.floor`, `np.ceil`, `np.round`, `np.clip`, `np.where`, `np.maximum`, `np.minimum`, `np.power`, `np.isnan`, `np.isinf`, `np.isclose`
+- Reductions: `np.sum`, `np.mean`, `np.max`, `np.min`, `np.var`, `np.prod`, `np.argmax`, `np.argmin`, `np.any`, `np.all`, `np.cumsum`, `np.diff`
+- Linear algebra: `np.matmul`, `np.linalg.solve`, `np.linalg.inv`, `np.linalg.cholesky`, `np.linalg.eig`, `np.linalg.det`, `np.linalg.qr`, `np.linalg.svd`, `np.linalg.norm`
+- Matrix ops: `np.transpose`, `np.outer`, `np.diag`, `np.tril`, `np.triu`, `np.sort`, `np.argsort`
 - Signal processing: `np.fft.fft`, `np.fft.ifft`
-- Allocation: `np.zeros`, `np.ones`, `np.eye`
+- Allocation: `np.zeros`, `np.ones`, `np.eye`, `np.arange`, `np.linspace`, `np.full`, `np.full_like`, `np.ones_like`, `np.zeros_like`
+- Array ops: `np.concatenate`, `np.take`, `np.reshape`, `np.squeeze`, `np.expand_dims`, `np.flatten`, `np.tile`, `np.repeat`, `np.flip`, `np.roll`, `np.split`, `np.unique`, `np.stack`, `np.vstack`, `np.hstack`
 
 ### Stage 2: Math-IR Construction
 
@@ -128,7 +130,7 @@ void numpy_matmul_a1b2c3d4(
 
 ## Memory Model
 
-**Zero heap allocation** in all math kernels. All memory is caller-provided:
+**Zero heap allocation** in all math kernels. All memory is caller-provided. Note that `linalg_solve` and `linalg_inv` use fixed-size stack scratch arrays capped at 64×64.
 
 ```c
 // Caller allocates
@@ -210,6 +212,7 @@ Options:
   --amalgamate               Single .c/.h output
   --verify                   Run Z3 + fuzzing after compilation
   --verbose                  Detailed diagnostics
+  --entry NAME               Only emit this top-level function (repeatable)
 ```
 
 ### `purce extract`
@@ -219,9 +222,12 @@ purce extract <SOURCE_DIR> [OPTIONS]
 
 Options:
   --target {generic-c99,bare-arm-q31,bare-arm-q15}
-  -o, --output PATH          Output directory
+  -o, --output PATH          Output directory (default: out/)
   --embed-assets             Embed data assets
+  --amalgamate               Single .c/.h output
   --provenance-only          Manifest without code
+  --verbose                  Detailed diagnostics
+  --entry NAME               Only emit this top-level function (repeatable)
 ```
 
 ### `purce verify`
@@ -247,20 +253,29 @@ Options:
 ## Benchmarks
 
 ```bash
-# Numerical accuracy (87,000 iterations)
+# Numerical accuracy (87,000 iterations across 25 operations)
 python -m benchmarks.numerical_accuracy
 
-# Performance scaling
+# Performance scaling (real gcc -O2 compilation, 5 ops × 6 sizes)
 python -m benchmarks.performance_scaling
 
-# Edge cases
+# Edge cases (41 IEEE 754 cases across 7 operations)
 python -m benchmarks.edge_cases
 
-# Code metrics
+# Code metrics (cyclomatic complexity, LOC, structure)
 python -m benchmarks.code_metrics
 
-# C code quality
+# C code quality (readability, compilation cleanliness)
 python -m benchmarks.c_code_quality
+
+# Real-world pipeline benchmark (generates benchmarks/results.md)
+python -m benchmarks.real_benchmark
+
+# Reproducible corpus gate (14 kernels → 812 C files, byte-reproducible)
+python -m benchmarks.reproducible --baseline benchmarks/baseline.json
+
+# Everything in one run
+python -m benchmarks.run_all
 ```
 
 ## Limitations

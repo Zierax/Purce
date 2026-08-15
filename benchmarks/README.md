@@ -44,8 +44,8 @@ Tests all 25 operations with compiled C99 code vs Python reference.
 
 Measures gcc -O2 compiled C execution time across input sizes.
 
-- **6 operations** profiled (element_add, element_mul, reduce_sum, matmul, fft, linalg_solve)
-- **8 input sizes** per operation (16 to 16,384)
+- **5 operations** profiled (element_add, element_mul, reduce_sum, matmul, fft)
+- **6 input sizes** per operation (16 to 16,384)
 - **5 warmup runs, 10 samples** with mean +/- std dev
 - Reports GFLOPS and scaling curves
 - Cross-platform (Windows clock() / POSIX clock_gettime)
@@ -56,7 +56,7 @@ Tests IEEE 754 edge cases with compiled C99 code.
 
 - **NaN, Inf, -Inf, denormalized, overflow, underflow**
 - **Zero, negative zero, very large/small values**
-- **7 operations** x ~7 edge cases each
+- **7 operations** covering 41 IEEE 754 edge cases (element_add 8, element_mul 7, element_div 7, reduce_sum 6, reduce_max 6, matmul 4, fft 3)
 - All edge cases verified against compiled C99
 
 ### 4. Code Quality (`code_metrics.py`)
@@ -93,6 +93,16 @@ Runs all benchmarks in sequence with timing.
 
 ```bash
 python -m benchmarks.run_all
+```
+
+### 7b. Real-World Pipeline Benchmark (`real_benchmark.py`)
+
+Runs the full pipeline over the 23 real-world sources in `tests/realworld/` and writes
+the results to `benchmarks/results.md` (per-file node counts, generated C files, gcc
+compile status, Z3 verification, fuzz results, aggregated totals).
+
+```bash
+python -m benchmarks.real_benchmark
 ```
 
 ### 8. Reproducible Corpus Gate (`reproducible.py`)

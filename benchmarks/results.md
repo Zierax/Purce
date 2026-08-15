@@ -1,7 +1,7 @@
 # Purce Benchmark Results
 
-Generated: 2026-08-03 17:29:42
-Python: 3.11.15
+Generated: 2026-08-16 00:51:41
+Python: 3.13.14
 
 ## Pipeline Performance
 
@@ -9,37 +9,44 @@ Time to process Python source through full pipeline: parse → IR → slice → 
 
 | Source | Nodes | C Files | Clean C | #error C | C Lines | Time (ms) |
 |--------|-------|---------|---------|----------|---------|-----------|
-| fixtures/ (3 files) | 5 | 5 | 3 | 2 | 59 | 2.4 |
-| realworld/ (15 files) | 141 | 141 | 95 | 46 | 1058 | 74.8 |
+| fixtures/ (3 files) | 5 | 5 | 4 | 1 | 112 | 6.5 |
+| realworld/ (22 files) | 1450 | 1450 | 1450 | 0 | 16620 | 1303.0 |
 
 ### Per-File Breakdown
 
 | File | Nodes | C Files | Clean | #error | C Lines | Time (ms) |
 |------|-------|---------|-------|--------|---------|-----------|
-| activations.py | 15 | 15 | 5 | 10 | 100 | 3.9 |
-| attention.py | 7 | 7 | 3 | 4 | 56 | 3.4 |
-| convolution.py | 5 | 5 | 5 | 0 | 30 | 2.8 |
-| data_pipeline.py | 10 | 10 | 5 | 5 | 64 | 3.7 |
-| extra_patterns.py | 0 | 0 | 0 | 0 | 0 | 0.2 |
-| jax_ops.py | 16 | 16 | 11 | 5 | 141 | 5.1 |
-| layers.py | 10 | 10 | 7 | 3 | 82 | 4.4 |
-| linear_algebra.py | 11 | 11 | 11 | 0 | 97 | 4.7 |
-| losses.py | 10 | 10 | 6 | 4 | 71 | 4.1 |
-| model.py | 6 | 6 | 2 | 4 | 38 | 3.6 |
-| normalization.py | 5 | 5 | 4 | 1 | 50 | 2.6 |
-| optimizers.py | 6 | 6 | 6 | 0 | 49 | 8.8 |
-| pytorch_ops.py | 16 | 16 | 8 | 8 | 113 | 5.1 |
-| scipy_ops.py | 15 | 15 | 14 | 1 | 99 | 7.7 |
-| signal_processing.py | 11 | 11 | 8 | 3 | 80 | 5.2 |
+| activations.py | 234 | 234 | 234 | 0 | 2573 | 134.3 |
+| attention.py | 44 | 44 | 44 | 0 | 558 | 46.4 |
+| computer_vision.py | 57 | 57 | 57 | 0 | 671 | 57.1 |
+| convolution.py | 39 | 39 | 39 | 0 | 401 | 31.4 |
+| data_pipeline.py | 26 | 26 | 26 | 0 | 282 | 24.0 |
+| extra_patterns.py | 0 | 0 | 0 | 0 | 0 | 0.4 |
+| generative.py | 71 | 71 | 71 | 0 | 809 | 34.2 |
+| graph_neural_networks.py | 35 | 35 | 35 | 0 | 478 | 19.8 |
+| jax_ops.py | 85 | 85 | 85 | 0 | 964 | 58.8 |
+| layers.py | 48 | 48 | 48 | 0 | 588 | 36.2 |
+| linear_algebra.py | 36 | 36 | 36 | 0 | 478 | 34.3 |
+| losses.py | 80 | 80 | 80 | 0 | 894 | 65.1 |
+| model.py | 30 | 30 | 30 | 0 | 341 | 41.8 |
+| normalization.py | 24 | 24 | 24 | 0 | 297 | 17.8 |
+| optimizers.py | 86 | 86 | 86 | 0 | 911 | 69.7 |
+| pytorch_ops.py | 100 | 100 | 100 | 0 | 1125 | 86.9 |
+| recommendation.py | 60 | 60 | 60 | 0 | 725 | 64.7 |
+| reinforcement_learning.py | 48 | 48 | 48 | 0 | 526 | 36.0 |
+| scipy_ops.py | 24 | 24 | 24 | 0 | 239 | 32.8 |
+| signal_processing.py | 87 | 87 | 87 | 0 | 901 | 68.3 |
+| time_series.py | 38 | 38 | 38 | 0 | 513 | 23.1 |
+| transformers.py | 71 | 71 | 71 | 0 | 880 | 50.2 |
 
 ## Verification Results
 
 ### Z3 SMT Bounds Checking
 
-- Total nodes: 141
-- Verified (safe): 80
-- Violated (potential overflow): 59
-- Unknown (Z3 timeout): 2
+- Total nodes: 1450
+- Verified (safe): 788
+- Violated (potential overflow): 0
+- Unknown (Z3 timeout): 662
 
 ### Differential Fuzzing (Python-only, 1000 iterations)
 
@@ -75,12 +82,12 @@ All 25 operations passed differential fuzzing.
 
 ## Generated Code Quality
 
-- Total .c files: 141
-- Files with #error (unsupported ops): 46
-- Clean compilable files: 95
-- Total C lines (excluding comments): 1058
-- Total function definitions: 141
-- Average lines per function: 8
+- Total .c files: 1450
+- Files with #error (unsupported ops): 0
+- Clean compilable files: 1450
+- Total C lines (excluding comments): 16620
+- Total function definitions: 1450
+- Average lines per function: 11
 
 ## Operation Coverage
 
@@ -88,36 +95,67 @@ All 25 operations passed differential fuzzing.
 
 | Operation | Algorithm | Kernel Count |
 |-----------|-----------|--------------|
-| various | alloc_eye | 6 |
-| various | alloc_ones | 1 |
-| various | alloc_zeros | 34 |
-| various | element_abs | 1 |
-| various | element_add | 9 |
-| various | element_div | 2 |
-| various | element_exp | 1 |
-| various | element_log | 3 |
-| various | element_mul | 16 |
-| various | element_sqrt | 3 |
-| various | element_sub | 16 |
-| various | matmul | 6 |
-| various | reduce_mean | 9 |
-| various | reduce_sum | 3 |
+| various | alloc_arange | 12 |
+| various | alloc_eye | 12 |
+| various | alloc_full | 4 |
+| various | alloc_linspace | 2 |
+| various | alloc_ones | 15 |
+| various | alloc_random | 2 |
+| various | alloc_zeros | 65 |
+| various | array_argsort | 1 |
+| various | array_concat | 2 |
+| various | array_literal | 1 |
+| various | array_permutation | 1 |
+| various | array_reshape | 25 |
+| various | array_take | 3 |
+| various | element_abs | 11 |
+| various | element_add | 184 |
+| various | element_clip | 3 |
+| various | element_conj | 4 |
+| various | element_copy | 12 |
+| various | element_cos | 8 |
+| various | element_div | 123 |
+| various | element_exp | 79 |
+| various | element_greater | 27 |
+| various | element_less | 1 |
+| various | element_log | 26 |
+| various | element_max | 25 |
+| various | element_min | 10 |
+| various | element_mul | 308 |
+| various | element_neg | 13 |
+| various | element_power | 55 |
+| various | element_real | 1 |
+| various | element_sign | 1 |
+| various | element_sin | 4 |
+| various | element_sqrt | 38 |
+| various | element_sub | 121 |
+| various | element_tanh | 6 |
+| various | element_where | 37 |
+| various | linalg_inv | 1 |
+| various | loop_concat | 2 |
+| various | matmul | 70 |
+| various | matrix_diag | 2 |
+| various | matrix_tril | 1 |
+| various | outer_product | 1 |
+| various | reduce_max | 16 |
+| various | reduce_mean | 41 |
+| various | reduce_sum | 48 |
+| various | reduce_var | 12 |
+| various | transpose | 14 |
 
 ### Unsupported (generates #error)
 
-- Total nodes with 'unknown' algorithm: 31
-- These contain operations like: numpy.power, numpy.maximum, numpy.minimum, numpy.where, numpy.clip, etc.
-- Adding these to MATH_KERNEL_BODIES would eliminate the #error directives.
+- Total nodes with 'unknown' algorithm: 0
 
 ## Summary
 
 | Metric | Value |
 |--------|-------|
-| Python source files processed | 18 |
-| Total Math-IR nodes extracted | 11 |
-| Generated .c files | 141 |
-| Clean compilable files | 95 (67%) |
-| Files with #error | 46 (33%) |
-| Z3 verified nodes | 80/141 |
+| Python source files processed | 25 |
+| Total Math-IR nodes extracted | 1323 |
+| Generated .c files | 1450 |
+| Clean compilable files | 1450 (100%) |
+| Files with #error | 0 (0%) |
+| Z3 verified nodes | 788/1450 |
 | Fuzz operations passed | 25/25 |
-| Pipeline time (all files) | 384.3s |
+| Pipeline time (all files) | 1.0s |

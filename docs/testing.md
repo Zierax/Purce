@@ -4,34 +4,47 @@
 
 ```
 tests/
-├── test_ir.py              MathIRNode, MathIRGraph, topological sort
+├── test_ir.py               MathIRNode, MathIRGraph, topological sort
+├── test_ir_coverage_a.py    IR builder coverage sweep A (34 tests)
+├── test_ir_coverage_b.py    IR builder coverage sweep B (28 tests)
+├── test_ir_coverage_c.py    IR builder coverage sweep C (29 tests)
 ├── test_parser.py           PythonParser (parseable NumPy operations)
 ├── test_slicer.py           SemanticSlicer (pruning, classification)
 ├── test_backend.py          C99Generator (headers, naming, output)
 ├── test_verifier.py         DifferentialFuzzer, Z3Verifier, CBackend (requires gcc)
+├── test_verifier_edges.py   Verifier edge/corner cases (62 tests)
 ├── test_coverage_sweep.py   End-to-end coverage sweep (91 reachable kernels vs NumPy)
 ├── test_edge_coverage.py    IEEE-754 corner inputs for every element-wise kernel
 ├── test_generated_kernel_runtime.py  Runtime correctness gate for generated kernels
+├── test_reproducible.py     Corpus-gate determinism checks
 ├── test_cli.py              CLI extract/compile/verify commands
 ├── test_integration.py      Full pipeline integration tests
 ├── test_realworld.py        Real-world ML/scientific pipeline tests
 ├── test_c_compilation.py    C compilation verification (requires gcc)
 ├── verification_agent.py    5-phase verification sub-agent
-└── realworld/               Real-world test projects
-    ├── layers.py            Neural network layers
-    ├── activations.py       Activation functions
-    ├── losses.py            Loss functions
-    ├── optimizers.py        Optimizer implementations
-    ├── normalization.py     Normalization layers
-    ├── attention.py         Attention mechanisms
-    ├── convolution.py       Convolution operations
-    ├── linear_algebra.py    Linear algebra operations
-    ├── signal_processing.py Signal processing
-    ├── data_pipeline.py     Data processing
-    ├── model.py             Model definitions
-    ├── jax_ops.py           JAX-style operations
-    ├── pytorch_ops.py       PyTorch-style operations
-    └── scipy_ops.py         SciPy-style operations
+└── realworld/               Real-world test projects (23 .py sources)
+    ├── activations.py          Activation functions
+    ├── attention.py            Attention mechanisms
+    ├── computer_vision.py      Computer vision operations
+    ├── convolution.py          Convolution operations
+    ├── data_pipeline.py        Data processing
+    ├── extra_patterns.py       Additional usage patterns
+    ├── generative.py           Generative model operations
+    ├── graph_neural_networks.py  GNN operations
+    ├── jax_ops.py              JAX-style operations
+    ├── layers.py               Neural network layers
+    ├── linear_algebra.py       Linear algebra operations
+    ├── losses.py               Loss functions
+    ├── model.py                Model definitions
+    ├── normalization.py        Normalization layers
+    ├── optimizers.py           Optimizer implementations
+    ├── pytorch_ops.py          PyTorch-style operations
+    ├── recommendation.py       Recommendation operations
+    ├── reinforcement_learning.py  RL operations
+    ├── scipy_ops.py            SciPy-style operations
+    ├── signal_processing.py    Signal processing
+    ├── time_series.py          Time series operations
+    └── transformers.py         Transformer operations
 ```
 
 ## Running Tests
@@ -73,15 +86,16 @@ Exit code 0 = all pass, 1 = failure.
 
 ## Test Categories
 
-### Unit Tests (486 total)
+### Unit Tests (487 total)
 
-**Math-IR (`test_ir.py`)**:
+**Math-IR (`test_ir.py` / `test_ir_coverage_a/b/c.py`)**:
 - Node creation and validation
 - Graph operations (add, remove, get)
 - Topological sort (Kahn's algorithm)
 - Cycle detection
 - DAG validation
 - Dependency tracking
+- IR builder coverage sweeps (34 + 28 + 29 tests across A/B/C)
 
 **Parser (`test_parser.py`)**:
 - Full coverage of the 91 reachable kernel bodies
@@ -108,12 +122,13 @@ Exit code 0 = all pass, 1 = failure.
 - CMakeLists.txt generation
 - Header file generation
 
-**Verifier (`test_verifier.py` / `test_coverage_sweep.py`)**:
+**Verifier (`test_verifier.py` / `test_verifier_edges.py` / `test_coverage_sweep.py`)**:
 - Legacy fuzzer: all 25 operations
 - Z3 verification conditions
 - Tolerance checking
 - Edge case handling
 - Reproducibility (seed)
+- Verifier edge/corner cases (62 tests)
 
 **CLI (`test_cli.py`)**:
 - Extract command
@@ -195,4 +210,13 @@ python -m benchmarks.code_metrics
 
 # C code quality
 python -m benchmarks.c_code_quality
+
+# Real-world pipeline benchmark (generates benchmarks/results.md)
+python -m benchmarks.real_benchmark
+
+# Reproducible corpus gate (14 kernels → 812 C files, byte-reproducible)
+python -m benchmarks.reproducible --baseline benchmarks/baseline.json
+
+# Everything in one run
+python -m benchmarks.run_all
 ```

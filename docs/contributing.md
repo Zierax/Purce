@@ -45,7 +45,7 @@ make format
 ### Running Tests
 
 ```bash
-# Run all 486 tests
+# Run all 487 tests
 pytest tests/ -v
 
 # Run specific module
@@ -62,18 +62,26 @@ pytest -x
 
 ```
 tests/
-├── test_ir.py              # 24 tests - MathIRNode, MathIRGraph, MathIRBuilder
-├── test_parser.py          # 26 tests - PythonParser (all MVP operations)
-├── test_slicer.py          # 18 tests - SemanticSlicer (pruning, classification)
-├── test_backend.py         # 18 tests - C99Generator (headers, output, naming)
-├── test_verifier.py        # 38 tests - DifferentialFuzzer, Z3Verifier, CBackend (requires gcc)
-├── test_cli.py             # 12 tests - CLI extract/compile/verify commands
-├── test_integration.py     # 33 tests - Full pipeline integration
-├── test_realworld.py       # 42 tests - Real-world ML/scientific code
-├── test_c_compilation.py   # 15 tests - C compilation verification (requires gcc)
-├── verification_agent.py   # 5-phase verification agent
-├── fixtures/               # Sample Python files for testing
-└── realworld/              # 23 ML/scientific test source files
+├── test_ir.py                    # 24 tests - MathIRNode, MathIRGraph, MathIRBuilder
+├── test_ir_coverage_a.py         # 34 tests - IR builder coverage sweep A
+├── test_ir_coverage_b.py         # 28 tests - IR builder coverage sweep B
+├── test_ir_coverage_c.py         # 29 tests - IR builder coverage sweep C
+├── test_parser.py                # 26 tests - PythonParser (all MVP operations)
+├── test_slicer.py                # 20 tests - SemanticSlicer (pruning, classification)
+├── test_backend.py               # 21 tests - C99Generator (headers, output, naming)
+├── test_verifier.py              # 38 tests - DifferentialFuzzer, Z3Verifier, CBackend (requires gcc)
+├── test_verifier_edges.py        # 62 tests - Verifier edge/corner cases
+├── test_coverage_sweep.py        # 16 tests - Full 91-reachable coverage sweep
+├── test_edge_coverage.py         # 34 tests - IEEE-754 edge/corner coverage
+├── test_generated_kernel_runtime.py # 7 tests - Runtime correctness gate
+├── test_reproducible.py          # 20 tests - Corpus-gate determinism
+├── test_cli.py                   # 12 tests - CLI extract/compile/verify commands
+├── test_integration.py           # 34 tests - Full pipeline integration
+├── test_realworld.py             # 66 tests - Real-world ML/scientific code
+├── test_c_compilation.py         # 16 tests - C compilation verification (requires gcc)
+├── verification_agent.py         # 5-phase verification agent
+├── fixtures/                     # Sample Python files for testing
+└── realworld/                    # 23 ML/scientific test source files
 ```
 
 ### Writing Tests
@@ -123,10 +131,13 @@ purce/
 │   │   └── c99_generator.py
 │   ├── verifier/            # Verification
 │   │   ├── z3_verifier.py
-│   │   └── fuzzer.py
-│   └── pal/                 # Platform abstraction layer
+│   │   ├── fuzzer.py
+│   │   ├── ctypes_bridge.py
+│   │   ├── coverage_sweep.py
+│   │   └── equivalence.py
+│   └── runtime/             # Tier-R runtime (emitter, differential)
 ├── tests/                   # Test suite
-├── benchmarks/              # Performance benchmarks
+├── benchmarks/              # Performance benchmarks + corpus gate
 ├── docs/                    # Documentation
 ├── pyproject.toml
 └── README.md
@@ -225,7 +236,7 @@ make html
 
 ## Pull Request Checklist
 
-- [ ] All tests pass (486 collected; gcc-dependent tests skip gracefully without a compiler)
+- [ ] All tests pass (487 collected; gcc-dependent tests skip gracefully without a compiler)
 - [ ] No lint errors (`make lint`)
 - [ ] New features have tests
 - [ ] Documentation updated
