@@ -10,6 +10,13 @@ from typing import Any
 from purce import __version__
 from purce.ir.nodes import Dtype, MathIRGraph, MathIRNode
 
+# Kernels that have a body entry but are intentionally incomplete stubs.
+# Generated code for these algorithms is structurally valid C but numerically
+# incorrect; the file header must not claim verification.
+_STUB_ALGORITHMS: frozenset[str] = frozenset(
+    {"linalg_eig", "linalg_qr", "linalg_svd", "array_split"}
+)
+
 
 @dataclass
 class GeneratedFile:
@@ -1451,6 +1458,14 @@ class C99Generator:
                 f"{_sanitize_name(module_name)}_purce_rng_state",
             )
 
+        if node.algorithm in _STUB_ALGORITHMS:
+            body = (
+                "    /* WARNING: stub implementation for '"
+                + node.algorithm
+                + "' — numerically incomplete, do not use in production. */\n"
+                + body
+            )
+
         reduction_lines = []
         for r in node.reductions:
             orig = f" (from: {r.original})" if r.original else ""
@@ -1516,8 +1531,16 @@ class C99Generator:
             f" *   - Reentrancy: {reentrant_str}",
             " *",
             " * CORRECTNESS:",
-            " *   - Verified: differential fuzzing (10k iterations)",
-            " *   - Bounds:   within representable range for target dtype",
+            (
+                " *   - Verified: NO — stub not implemented (unverified)"
+                if node.algorithm in _STUB_ALGORITHMS
+                else " *   - Verified: differential fuzzing (10k iterations)"
+            ),
+            (
+                " *   - Bounds:   unverified (stub)"
+                if node.algorithm in _STUB_ALGORITHMS
+                else " *   - Bounds:   within representable range for target dtype"
+            ),
             " * ─────────────────────────────────────────────────────────────────────────── */",
             "",
             f"{func_sig} {{",
