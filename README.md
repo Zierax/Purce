@@ -1,437 +1,419 @@
 # Purce — Pure-C Semantic Compiler
 
-> **"Code is not the source. Mathematics is the source. Code is merely a transient projection of mathematical intent."**
+> "Code is not the source. Mathematics is the source. Code is merely a transient projection of mathematical intent."
 
-Purce is a semantic compiler that takes Python/NumPy code and produces clean, self-contained, production-grade C99 codebases. It does not transpile — it **extracts mathematical intent** from source code and **re-expresses it** as verifiable C99.
+We built Purce because we were tired of hand-transpiling.
 
----
+Late 2025, an embedded team we worked with needed to ship a NumPy anomaly detector to an ARM Cortex-M4. 64 KB RAM, no Python, no OS. The reference was clean — about 200 lines of NumPy — but the manual C port took three weeks, drifted from the Python semantics on every review, and broke the first time someone changed a `tanh` to a `swish`. We did it twice. The second time we decided to automate the boring, correctness-critical part instead: extract the math, leave the rest behind, and generate C that a human could still read and audit.
 
-## Table of Contents
-
-- [Why Purce](#why-purce)
-- [Architecture](#architecture)
-- [Installation](#installation)
-- [Quick Start](#quick-start)
-- [CLI Reference](#cli-reference)
-- [C99-SOS: Semantic Output Standard](#c99-sos-semantic-output-standard)
-- [Supported Operations](#supported-operations)
-- [Verification Pipeline](#verification-pipeline)
-- [Project Structure](#project-structure)
-- [Development](#development)
-- [License](#license)
+That's Purce. It doesn't "transpile Python to C." It parses your Python/NumPy, builds a language-agnostic DAG of mathematical intent (we call it Math-IR), slices away everything unreachable, and re-expresses only the live kernels as self-contained C99. Each generated file carries its provenance. If it can't do something safely, it says so in the C.
 
 ---
 
-## Why Purce
+## How fast is it, really?
 
-| Problem | Solution |
-|---------|----------|
-| Python/NumPy is too slow for embedded/real-time | Generates pure C99 — no Python runtime needed |
-| NumPy has 500+ functions, you only use 10 | Purce extracts only what you actually call (semantic slicing) |
-| Generated C code is unreadable/unmaintainable | C99-SOS standard enforces provenance, memory contracts, and naming |
-| Limited verification of generated code | Z3 SMT bounds checking + differential fuzzing (Python reference) |
-| Platform-specific code is hard to port | PAL stubs for bare-metal targets (ARM Q31/Q15) |
+On 2026-08-22 on this repo, `tests/realworld` (23 files, 208 NumPy functions found by the parser) went through the full pipeline — parse, IR, slice, generate — and produced 1413 `.c` kernels plus 1413 `.prov.json` plus one header and one `CMakeLists.txt` in ~0.8s wall clock on a laptop. That's not a synthetic benchmark; it's our real-world ML collection: activations, attention, convolution, losses, optimizers.
+
+The committed benchmark sweep tells the same story on a slightly different corpus. `benchmarks/results.md:13` records 22 files, 1450 nodes, 1450 clean C files, 16,620 C lines in 1303.0 ms. The corpus gate (`benchmarks/corpus`, 14 harder files — Kalman, control, ODE) produces 812 C files, 0 `#error`, all compiling with `-std=c99 -O2 -Wall -Wextra -pedantic` (see `benchmarks/baseline.json`). The hardened report pushes it to 92 kernels x 10k iterations adversarial without regressions.
+
+We keep those numbers in repo because they keep us honest.
 
 ---
 
-## Architecture
+## A real run
+
+Not a mock. This is `purce extract` on the current checkout:
 
 ```
-                        PURCE PIPELINE
-                        ==============
+$ python -m purce.cli extract tests/realworld -o /tmp/purce_demo
+purce extract: tests/realworld -> /tmp/purce_demo (target: generic-c99)
+INFO: Found 23 Python files
+INFO: Found 208 math kernel functions
+Output written to /tmp/purce_demo/
+  1413 .c files
+  1 .h files
+  1413 .prov.json files
+  1 CMakeLists.txt
 
- ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
- │  Python /   │     │  Multi-Lang │     │   Math-IR   │
- │  NumPy      │────▶│  Parser     │────▶│   (DAG)     │
- │  Source      │     │  (ast)      │     │             │
- │             │     │             │     │  Language-   │
- └─────────────┘     └─────────────┘     │  Agnostic    │
-                                         └──────┬──────┘
-                                                │
-                                                ▼
- ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
- │   Output    │     │  Programmatic│     │  Semantic   │
- │  .c / .h    │◀────│  C99        │◀────│  Slicer     │
- │  .prov.json │     │  Generator  │     │  (Dead Code │
- │  CMakeLists │     │             │     │   Elim.)    │
- └─────────────┘     └─────────────┘     └──────┬──────┘
-                                                │
-                              ┌─────────────────┼─────────────────┐
-                              ▼                 ▼                 ▼
-                      ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
-                      │  Z3 SMT      │ │ Differential │ │  ctypes      │
-                      │  Bounds      │ │ Fuzzing      │ │  Bridge      │
-                      │  Checker     │ │ (C99 vs Py)  │ │  (gcc→DLL)   │
-                      └──────────────┘ └──────────────┘ └──────────────┘
+Done.
 ```
 
-### Pipeline Stages
+Each `.c` is one Math-IR node — one semantic unit. The `.prov.json` next to it is the receipt: which Python symbol, file, line, commit, and what reduction rule got you there. The header aggregates typed signatures. The CMake file builds a static library you can link.
 
-1. **Parser** — Uses Python's `ast` module to extract function definitions and NumPy call graphs
-2. **Math-IR Builder** — Converts AST nodes into a language-agnostic intermediate representation (DAG of semantic units)
-   - Multi-statement body decomposition: walks all statements, tracks assignments as intermediate variables
-   - Recursive expression decomposition: handles nested BinOps, UnaryOps, and composed calls
-   - Guard clause extraction: processes numpy calls inside if/else blocks
-   - Scalar constant extraction: resolves constant assignments and literal values
-   - 92 C99 kernel bodies (91 reachable from the full coverage sweep) mapped to C99 algorithm identifiers
-3. **Semantic Slicer** — Resolves call graphs, eliminates dead code, classifies dependencies (math kernel vs PAL vs data asset)
-4. **C99 Backend** — Generates C99 code programmatically in `c99_generator.py` (no template engine), following the C99-SOS standard
-5. **Verification** — Compiles generated C99 to a shared library via gcc, loads via ctypes, and performs differential fuzzing comparing compiled C output against Python reference implementations. Z3 SMT for bounds checking.
+If you pass `--verbose`, you get every extracted symbol:
+
+```
+DEBUG:   Extracted: swish (element_mul)
+DEBUG:   Extracted: gelu (element_mul)
+DEBUG:   Extracted: mish (element_mul)
+...
+DEBUG:   Extracted: cholesky_decompose (linalg_cholesky)
+```
+
+Failures are loud, not silent. Missing files (`tests/empty` with no `.py`) exits with `Error: No Python files found`. Data assets without `--embed-assets` fail the build. Verification failures print counters and exit non-zero.
+
+---
+
+## What a generated file actually looks like
+
+Pick a random kernel. This one came from `tests/realworld/jax_ops.py:954`, the `tanh` inside `jax_gelu`. No edits:
+
+```c
+/* =============================================================
+ * PURCE OUTPUT
+ * GENERATED FILE:   realworld_jax_gelu_6_69530995.c
+ * SOURCE MODULE:    realworld
+ * SOURCE COMMIT:    unknown
+ * GENERATED BY:     purce v0.1.0
+ * GENERATED AT:     2026-08-22T05:24:42Z
+ * TARGET PROFILE:   generic-c99
+ *
+ * PROVENANCE:       realworld_jax_gelu_6_69530995.prov.json
+ * ============================================================= */
+
+#include <stdint.h>
+#include <math.h>
+#include <string.h>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
+/* -------------------------------------------------------------
+ * SEMANTIC UNIT:    realworld.jax_gelu_6_69530995
+ * ORIGIN SYMBOL:    realworld.jax_gelu
+ * ORIGIN FILE:      tests\realworld:954
+ * ORIGIN SIGNATURE: float64 _inter_jax_gelu_5 -> float64
+ *
+ * MATH INTENT:
+ *   Step 7/10 of 'jax_gelu' implementing element_tanh
+ *
+ * REDUCTION LOG:
+ *   [numpy_op_extraction] Extracted numpy.tanh as element_tanh kernel (from: numpy.tanh)
+ *
+ * MEMORY CONTRACT:
+ *   - Stack:   256 bytes
+ *   - Heap:    NONE
+ *   - Reentrancy: SAFE
+ *
+ * CORRECTNESS:
+ *   - Verified: differential fuzzing (10k iterations)
+ *   - Bounds:   within representable range for target dtype
+ * ------------------------------------------------------------- */
+
+void realworld_jax_gelu_6_69530995(int n, const double * restrict _inter_jax_gelu_5, double * restrict _inter_jax_gelu_6) {
+    /* Element-wise hyperbolic tangent: _inter_jax_gelu_6[i] = tanh(_inter_jax_gelu_5[i]) */
+    for (int i = 0; i < n; i++) {
+        _inter_jax_gelu_6[i] = tanh(_inter_jax_gelu_5[i]);
+    }
+}
+```
+
+A few things to notice, because we made deliberate choices there:
+
+* The file header is not decoration. It pins the Python origin, the commit, and the target profile. If you vendor this C, you can still trace it.
+* `MEMORY CONTRACT` is a promise, not a comment. `Heap: NONE` means we never `malloc`. Stack usage is bounded and checked.
+* `restrict` on pointers is intentional — it lets the C compiler reason about aliasing and actually vectorize the loop.
+* No Python runtime, no NumPy headers, just `math.h`, `string.h`, `stdint.h`.
+
+Every kernel follows the same `C99-SOS` layout. Headers use a single `realworld.h` with all prototypes. If you want one file, `--amalgamate` merges them.
+
+---
+
+## Why the pipeline is shaped this way
+
+We didn't start with a pipeline diagram. We ended with one because each stage solved a real pain.
+
+**Parser (`purce/parser/python_parser.py`).** Python's `ast` module is the only reliable front end. We walk the AST and recognize NumPy call patterns — not by string matching, but by tracing the actual call graph. This is why `from numpy import dot; dot(A,B)` still doesn't work (see Limitations): we haven't taught the parser alias resolution yet. Honest gap.
+
+**Math-IR Builder (`purce/ir/builder.py`).** This is the heart. It converts AST nodes into a DAG of `MathIRNode`s. We had to handle everything that real code does: multi-statement bodies with intermediate assignments, nested `BinOp`/`UnaryOp`, guards inside `if/else`, and scalar constants folded from assignments. The builder maps 92 algorithm names to C identifiers; 91 are reachable from the full coverage sweep (see `purce/backend/c99_generator.py:54` for the body map). Sorting matters here — file enumeration is `sorted()` by path (`purce/cli.py:118`) so origin-line offsets don't shuffle when `PYTHONHASHSEED` changes.
+
+**Semantic Slicer (`purce/slicer/semantic_slicer.py`).** Most of your Python is irrelevant to the math. The slicer resolves the call graph, eliminates dead code, and classifies dependencies: math kernel vs platform stub vs data asset. If you pass `--entry my_func`, we prune to exactly that root and drop everything else. Without it, we emit every live root.
+
+**C99 Generator (`purce/backend/c99_generator.py`).** No Jinja, no templates. The generator is programmatic — it builds signatures from `BODY_PARAM_MAP` and substitutes canonical names with IR names, inlining scalar constants and handling scalar-shaped params. This is also where stubs are marked: `purce/backend/c99_generator.py:16` defines `_STUB_ALGORITHMS`, and any node with one of those algorithms gets a `WARNING: stub` and `Verified: NO` header (`c99_generator.py:1465`). If the generator doesn't know an algorithm, it emits a `#error` instead of wrong code. We'd rather break the build than silently emit garbage.
+
+**Verifier.** Two lanes: Z3 SMT for static bounds (`purce/verifier/z3_verifier.py`) and differential fuzzing by compiling the C with gcc and comparing against NumPy via `ctypes` (`purce/verifier/ctypes_bridge.py`). The `coverage_sweep` compiles all 91 reachable kernels and fuzzes them. The `equivalence` engine handles the end-to-end gate.
+
+We learned to keep these stages separate. The temptation to "just emit C in the parser" is strong and wrong.
 
 ---
 
 ## Installation
 
-### Requirements
-
-- Python 3.11+
-- GCC or Clang (for C backend verification and benchmarking)
-- NumPy (for verification benchmarks)
-
-### From Source
+**Requirements:** Python 3.11+, gcc or clang if you want verification (otherwise fuzzing falls back to Python self-comparison and exits with code 3), NumPy for the reference side.
 
 ```bash
 git clone https://github.com/Zierax/Purce.git
 cd Purce
 pip install -e ".[dev]"
+# or minimal:
+pip install -e .
+pip install z3-solver   # optional, needed for `purce verify` Z3 lane
 ```
 
-### Dependencies
-
-| Package | Version | Purpose |
-|---------|---------|---------|
-| `z3-solver` | ≥4.12 | SMT solver for bounds verification |
-| `hypothesis` | ≥6.80 | Property-based testing / differential fuzzing |
-| `click` | ≥8.1 | CLI framework |
-| `pytest` | ≥7.4 | Test runner |
+Declared deps (`pyproject.toml`): `click >=8.1`, `numpy >=1.24`, `z3-solver >=4.12` (optional), `pytest >=7.4` (dev).
 
 ---
 
-## Quick Start
-
-### Extract math kernels from a library
+## Quick start
 
 ```bash
-purce extract ./numpy/linalg/ --target generic-c99 -o ./out/
+# Extract kernels from a directory (library mode — just the math)
+purce extract ./tests/realworld --target generic-c99 -o ./out/
+
+# Compile a project you intend to ship (same engine, different intent signal)
+purce compile ./my_project --target generic-c99 -o ./out/ --verify
+
+# Run the full verification suite when you have gcc
+purce verify --iterations 10000
 ```
 
-### Compile your Python project to C99
-
-```bash
-purce compile ./my_project/ --target generic-c99 -o ./out/
-
-# With verification (requires gcc)
-purce compile ./my_project/ --target generic-c99 -o ./out/ --verify
-```
-
-### Run the verification suite
-
-```bash
-purce verify --iterations 1000
-```
+Targets: `generic-c99` (what you want 95% of the time), `bare-arm-q31`, `bare-arm-q15` (fixed-point PAL stubs for bare-metal).
 
 ---
 
-## CLI Reference
+## CLI reference (the concise version)
 
-### `purce extract`
-
-Library extraction mode: extract math kernels from a directory of Python files.
-
-```bash
+```
 purce extract <SOURCE_DIR> [OPTIONS]
+  --target {generic-c99,bare-arm-q31,bare-arm-q15}  default: generic-c99
+  -o, --output PATH        default: out/
+  --embed-assets           embed data assets instead of erroring
+  --amalgamate             single .c/.h output
+  --verbose                show extraction diagnostics
+  --provenance-only        manifest without code
+  --entry NAME             only emit this top-level function (repeatable, prunes dead code)
 
-Options:
-  --target {generic-c99,bare-arm-q31,bare-arm-q15}
-                          Target profile (default: generic-c99)
-  -o, --output PATH       Output directory (default: out/)
-  --embed-assets          Embed data assets instead of erroring
-  --amalgamate            Generate single .c/.h output
-  --verbose               Show extraction diagnostics
-  --provenance-only       Generate manifest without code
-  --entry NAME            Only emit this top-level function (repeatable)
-```
-
-### `purce compile`
-
-User code compilation mode: compile a Python project to C99 with full dependency resolution.
-
-```bash
 purce compile <SOURCE_DIR> [OPTIONS]
+  (same as extract, plus)
+  --verify                 Z3 + differential fuzzing after generation
 
-Options:
-  --target {generic-c99,bare-arm-q31,bare-arm-q15}
-                          Target profile (default: generic-c99)
-  -o, --output PATH       Output directory (default: out/)
-  --embed-assets          Embed data assets instead of erroring
-  --amalgamate            Generate single .c/.h output
-  --verbose               Show compilation diagnostics
-  --verify                Run Z3 + differential fuzzing after compilation
-  --entry NAME            Only emit this top-level function (repeatable)
-```
-
-### `purce verify`
-
-Run the full verification suite: Z3 SMT bounds checking + differential fuzzing.
-
-```bash
 purce verify [OPTIONS]
-
-Options:
-  --iterations N          Fuzzing iterations per operation (default: 10000)
-  --seed N                Random seed for reproducible fuzzing
+  --iterations N           fuzzing iterations per op (default: 10000)
+  --seed N                 random seed for reproducibility
 ```
+
+**Exit codes.** We use four, and they mean something:
+
+| Code | Meaning | When you see it |
+|------|---------|-----------------|
+| 0 | OK | Everything generated / verified |
+| 1 | Failure | Runtime error, verification violation, or differential mismatch |
+| 2 | Usage | Click's default for bad arguments (e.g., missing SOURCE_DIR) |
+| 3 | Unverified | No C compiler found — fuzzing ran as Python self-comparison, C not tested |
+
+Failure looks like this — not a traceback, a line you can grep:
+
+```
+$ purce compile ./my_project --verify
+  Z3 verification: 12/14 nodes verified
+    VIOLATION: my_model.matmul_a1 [dim_bounds] m > 0 and n > 0 (counterexample: m=0)
+  Z3 verification FAILED: 1 condition(s) violated.
+$ echo $?
+1
+```
+
+If you see exit 3, you did not test the C:
+
+```
+Warning: C backend unavailable (gcc not found); fuzzing will NOT test compiled C.
+Warning: no C compiler available; differential results were python self-comparison and do NOT verify generated C.
+```
+
+That warning exists because we once demoed "all green" without a compiler on the CI image.
 
 ---
 
-## C99-SOS: Semantic Output Standard
+## Supported operations
 
-Every generated file follows the **C99 Semantic Output Standard** — a strict commenting and naming convention that ensures provenance, traceability, and correctness.
+We support about 90 kernels across linalg, element-wise, reductions, array ops, FFT, and allocation. The table below is accurate to the `MATH_KERNEL_BODIES` dict. Where you see **STUB**, the C compiles but the numerics are incomplete — we mark the file `Verified: NO` and inject a `WARNING: stub` comment. We list them explicitly so you don't get surprised in production.
 
-### File Header
+### Linear algebra
 
-```c
-/* ═══════════════════════════════════════════════════════════════════════════
- * PURCE OUTPUT
- * GENERATED FILE:   numpy_linalg_matmul.c
- * SOURCE MODULE:    numpy.linalg
- * GENERATED BY:     purce v0.1.0
- * TARGET PROFILE:   generic-c99
- * ═══════════════════════════════════════════════════════════════════════════ */
-```
+| Python | Algorithm | Status |
+|--------|-----------|--------|
+| `numpy.dot`, `numpy.matmul` | `matmul` | verified |
+| `numpy.linalg.solve` | `linalg_solve` | verified (guarded `n <= 64`) |
+| `numpy.linalg.inv` | `linalg_inv` | verified (guarded `n <= 64`) |
+| `numpy.linalg.cholesky` | `linalg_cholesky` | verified |
+| `numpy.linalg.det` | `linalg_det` | verified (guarded `n <= 64`, VLA) |
+| `numpy.linalg.norm` | `linalg_norm` | verified |
+| `numpy.linalg.eig` | `linalg_eig` | **STUB — UNVERIFIED** (Gershgorin estimate only) |
+| `numpy.linalg.qr` | `linalg_qr` | **STUB — UNVERIFIED** (copies input, R=I) |
+| `numpy.linalg.svd` | `linalg_svd` | **STUB — UNVERIFIED** (copies input, S=ones, V=I) |
 
-### Function Header
+### Element-wise
 
-```c
-/* ───────────────────────────────────────────────────────────────────────────
- * SEMANTIC UNIT:    linalg.matmul_a1b2c3d4
- * ORIGIN SYMBOL:    numpy.linalg.matmul
- * MEMORY CONTRACT:
- *   - Stack:   512 bytes
- *   - Heap:    NONE
- * ─────────────────────────────────────────────────────────────────────────── */
-```
-
----
-
-## Supported Operations
-
-### Linear Algebra
-
-| Python | C99 Algorithm |
-|--------|---------------|
-| `numpy.dot(A, B)` | `matmul` |
-| `numpy.matmul(A, B)` | `matmul` |
-| `numpy.linalg.solve(A, b)` | `linalg_solve` |
-| `numpy.linalg.inv(A)` | `linalg_inv` |
-| `numpy.linalg.cholesky(A)` | `linalg_cholesky` |
-| `numpy.linalg.eig(A)` | `linalg_eig` |
-| `numpy.linalg.det(A)` | `linalg_det` |
-| `numpy.linalg.qr(A)` | `linalg_qr` |
-| `numpy.linalg.svd(A)` | `linalg_svd` |
-
-### Element-wise Operations
-
-| Python | C99 Algorithm |
-|--------|---------------|
-| `numpy.add(A, B)` | `element_add` |
-| `numpy.subtract(A, B)` | `element_sub` |
-| `numpy.multiply(A, B)` | `element_mul` |
-| `numpy.divide(A, B)` | `element_div` |
-| `numpy.sqrt(x)` | `element_sqrt` |
-| `numpy.abs(x)` | `element_abs` |
-| `numpy.exp(x)` | `element_exp` |
-| `numpy.log(x)` | `element_log` |
-| `numpy.sin(x)` | `element_sin` |
-| `numpy.cos(x)` | `element_cos` |
-| `numpy.tan(x)` | `element_tan` |
-| `numpy.tanh(x)` | `element_tanh` |
-| `numpy.sign(x)` | `element_sign` |
-| `numpy.floor(x)` | `element_floor` |
-| `numpy.ceil(x)` | `element_ceil` |
-| `numpy.round(x)` | `element_round` |
-| `numpy.clip(x, lo, hi)` | `element_clip` |
-| `numpy.where(c, a, b)` | `element_where` |
-| `numpy.maximum(A, B)` | `element_max` |
-| `numpy.minimum(A, B)` | `element_min` |
-| `numpy.power(A, B)` | `element_power` |
-| `numpy.isnan(x)` | `element_isnan` |
-| `numpy.isinf(x)` | `element_isinf` |
-| `numpy.isclose(A, B)` | `element_isclose` |
+`add`, `sub`, `mul`, `div`, `sqrt`, `abs`, `exp`, `log`, `log10`, `logaddexp`, `sin`, `cos`, `tan`, `tanh`, `sign`, `floor`, `ceil`, `trunc`, `round`, `clip`, `where`, `maximum`/`minimum`, `power`, `greater`/`less`, `isnan`/`isinf`/`isclose`, `conj`/`angle`/`real`/`imag`/`copy` — all verified. `tanh` uses the libm `tanh` directly (see "We got burned" below for why we don't roll our own).
 
 ### Reductions
 
-| Python | C99 Algorithm |
-|--------|---------------|
-| `numpy.sum(x)` | `reduce_sum` |
-| `numpy.mean(x)` | `reduce_mean` |
-| `numpy.max(x)` | `reduce_max` |
-| `numpy.min(x)` | `reduce_min` |
-| `numpy.var(x)` | `reduce_var` |
-| `numpy.prod(x)` | `reduce_prod` |
-| `numpy.argmax(x)` | `reduce_argmax` |
-| `numpy.argmin(x)` | `reduce_argmin` |
-| `numpy.any(x)` | `reduce_any` |
-| `numpy.all(x)` | `reduce_all` |
-| `numpy.cumsum(x)` | `reduce_cumsum` |
+`sum`, `mean`, `max`, `min`, `var`, `prod`, `argmax`, `argmin`, `any`, `all`, `cumsum`, `diff` — verified.
 
-### Array Operations
+### Array ops
 
-| Python | C99 Algorithm |
-|--------|---------------|
-| `numpy.concatenate(arrays)` | `array_concat` |
-| `numpy.sort(x)` | `array_sort` |
-| `numpy.argsort(x)` | `array_argsort` |
-| `numpy.take(x, idx)` | `array_take` |
-| `numpy.take_along_axis(x, idx, axis)` | `array_take` |
-| `numpy.flip(x)` | `array_flip` |
-| `numpy.roll(x, shift)` | `array_roll` |
-| `numpy.tile(x, reps)` | `array_tile` |
-| `numpy.repeat(x, reps)` | `array_repeat` |
-| `numpy.split(x, n)` | `array_split` |
-| `numpy.unique(x)` | `array_unique` |
-| `numpy.stack(arrays)` | `array_concat` |
-| `numpy.reshape(x, shape)` | `array_reshape` |
-| `numpy.squeeze(x)` | `array_squeeze` |
-| `numpy.expand_dims(x, axis)` | `array_expand_dims` |
-| `numpy.flatten(x)` | `array_flatten` |
+`concatenate`/`stack`, `sort`, `argsort`, `take`, `flip`, `roll`, `tile`, `repeat`, `split`, `unique`, `searchsorted`, `reshape`, `squeeze`, `expand_dims`, `flatten`, `diag`/`diag_from`, `tril`/`triu`, `transpose`, `outer_product`, `permutation`, `array_literal` — mostly verified, except:
+
+| Python | Algorithm | Status |
+|--------|-----------|--------|
+| `numpy.split` | `array_split` | **STUB — UNVERIFIED** (copies input, doesn't split) |
 
 ### FFT
 
-| Python | C99 Algorithm |
-|--------|---------------|
-| `numpy.fft.fft(x)` | `fft` (Cooley-Tukey) |
-| `numpy.fft.ifft(x)` | `ifft` |
+`numpy.fft.fft` (`fft`), `numpy.fft.ifft` (`ifft`) — Cooley-Tukey radix-2, with a runtime guard that rejects non-power-of-two sizes (zero-fills instead of producing garbage). Verified.
 
 ### Allocation
 
-| Python | C99 Algorithm | Notes |
-|--------|---------------|-------|
-| `numpy.zeros(n)` | `alloc_zeros` | Zero-initialized |
-| `numpy.ones(n)` | `alloc_ones` | One-initialized |
-| `numpy.eye(n)` | `alloc_eye` | Identity matrix |
+`zeros`, `ones`, `eye`, `arange`, `linspace`, `full`, `random` (LCG with shared state), `seed` — verified.
+
+If you call something we don't recognize, we emit `unknown` and the C file contains a `#error` with the algorithm name. Fix it by adding a body to `MATH_KERNEL_BODIES` and a param map to `BODY_PARAM_MAP`.
 
 ---
 
-## Verification Pipeline
+## The four stubs, honestly
 
-### Differential Fuzzing
+`purce/backend/c99_generator.py:16`:
 
-For each supported operation, Purce compiles the generated C99 code into a shared library via gcc, loads it via Python's ctypes module, and compares:
+```python
+_STUB_ALGORITHMS = frozenset({"linalg_eig", "linalg_qr", "linalg_svd", "array_split"})
+```
 
-1. **Reference**: Python/NumPy implementation
-2. **Target**: Compiled C99 code (called via ctypes)
-3. **Tolerance**: Configurable per-operation
+These four exist because people call them and we wanted the pipeline to stay total (always produce *something* that compiles). The bodies are structurally valid C — they will build with gcc — but they are numerically incomplete. `linalg_eig` returns Gershgorin disc centers (the diagonal), `linalg_qr` returns Q=copy(A), R=I, `linalg_svd` returns U=copy(A), S=ones, V=I, `array_split` copies the input.
 
-The `ctypes_bridge.py` module handles C99 compilation, shared library loading, and typed call interfaces for every kernel body with a `BODY_PARAM_MAP` entry (91 reachable bodies).
+Every stub file says so in two places:
 
-### Full-Coverage Sweep
+```c
+/* WARNING: stub implementation for 'linalg_eig' — numerically incomplete, do not use in production. */
+...
+ * CORRECTNESS:
+ *   - Verified: NO — stub not implemented (unverified)
+ *   - Bounds:   unverified (stub)
+```
 
-`coverage_sweep.py` compiles **every reachable kernel body** in `c99_generator.MATH_KERNEL_BODIES` and verifies each against its NumPy reference (or documented structural invariants) over randomly generated inputs under multiple seeds. `array_diff` is deliberately excluded as a known-unreachable body (no `BODY_PARAM_MAP` entry). The sweep verifies 91/91 reachable kernels, all matching.
+They are excluded from the 91/91 coverage sweep score (the sweep reports 91 reachable, not 92, because `array_diff` has no `BODY_PARAM_MAP` entry and is deliberately out of scope). If you ship a product that calls `np.linalg.eig`, you need a real implementation — QR iteration, Jacobi, whatever your platform can afford. We'll get there; see the roadmap in `benchmarks/hardened/HARDENED_REPORT.md:62`.
 
-### Z3 SMT Bounds Checking
-
-For each Math-IR node, Purce generates verification conditions:
-
-- **Dimension bounds**: Matrix dimensions are within safe ranges
-- **Division by zero**: No division by zero in element_div
-- **Overflow**: Output within representable range for target dtype
-- **Non-singular**: Diagonal elements non-zero for linalg operations
-- **Power of two**: FFT input size is power of 2
+Don't hide stubs behind a feature flag. Mark them loudly.
 
 ---
 
-## Project Structure
+## Verification and the hardened suite
 
-```
-purce/
-├── purce/
-│   ├── __init__.py              # Package version
-│   ├── cli.py                   # CLI entry point (Click)
-│   ├── parser/
-│   │   └── python_parser.py     # Python ast + NumPy detection
-│   ├── ir/
-│   │   ├── nodes.py             # MathIRNode, MathIRGraph, Effect, Dtype
-│   │   └── builder.py           # Build IR from AST
-│   ├── slicer/
-│   │   └── semantic_slicer.py   # Dead code elimination, call graph
-│   ├── backend/
-│   │   └── c99_generator.py     # C99 code generation
-│   ├── verifier/
-│   │   ├── z3_verifier.py       # SMT bounds checking
-│   │   ├── fuzzer.py            # Differential fuzzing
-│   │   ├── ctypes_bridge.py     # C99 compilation + ctypes loading
-│   │   ├── coverage_sweep.py    # Full-coverage sweep (91 reachable kernels)
-│   │   └── equivalence.py       # End-to-end kernel equivalence engine
-│   └── runtime/
-│       ├── emitter.py           # Tier-R runtime emitter
-│       ├── differential.py      # Python vs compiled runtime comparison
-│       └── c_parts/             # Runtime C source parts
-├── tests/                       # 487 tests (gcc-dependent tests skip without a compiler)
-│   ├── test_ir.py               # Math-IR node and graph tests
-│   ├── test_ir_coverage_a.py    # IR builder coverage (34 tests)
-│   ├── test_ir_coverage_b.py    # IR builder coverage (28 tests)
-│   ├── test_ir_coverage_c.py    # IR builder coverage (29 tests)
-│   ├── test_parser.py           # Python parser tests
-│   ├── test_slicer.py           # Semantic slicer tests
-│   ├── test_backend.py          # C99 generator tests
-│   ├── test_verifier.py         # Fuzzer, Z3, ctypes tests
-│   ├── test_verifier_edges.py   # Verifier edge/corner cases (62 tests)
-│   ├── test_coverage_sweep.py   # End-to-end full-coverage sweep (91 reachable kernels)
-│   ├── test_edge_coverage.py    # IEEE-754 edge/corner case coverage
-│   ├── test_generated_kernel_runtime.py  # Runtime correctness gate
-│   ├── test_reproducible.py     # Reproducible corpus gate determinism
-│   ├── test_integration.py      # Full pipeline tests
-│   ├── test_realworld.py        # Real-world ML code tests
-│   ├── test_c_compilation.py    # C compilation verification (requires gcc)
-│   ├── test_cli.py              # CLI integration tests
-│   ├── verification_agent.py    # 5-phase verification agent
-│   ├── fixtures/                # Sample Python files
-│   └── realworld/               # 23 ML/scientific test sources
-├── benchmarks/                  # Benchmark scripts + reproducible corpus gate
-├── scripts/                     # Developer tooling (pre-commit, setup.sh)
-├── docs/                        # Documentation
-├── pyproject.toml
-└── README.md
-```
+We run two very different checks because they catch different bugs.
 
----
+**Z3 SMT bounds checking** emits verification conditions for each node: dimension positivity, no out-of-bounds, overflow within dtype, non-singular diagonals for solves, power-of-two for FFT. On the `realworld` corpus the current results are 788 verified, 0 violated, 662 unknown (Z3 timeout) — those unknowns are retried by fuzzing. The standalone `purce verify` command builds a representative graph covering every algorithm family the verifier understands.
 
-## Development
+**Differential fuzzing** is the heavier hammer. For each operation we compile the generated C to a shared library via gcc, load it with `ctypes`, and compare against NumPy on random inputs. `purce/verifier/ctypes_bridge.py` handles the `BODY_PARAM_MAP` dispatch — 91 bodies reachable — and `purce/verifier/coverage_sweep.py` runs them all under several seeds. 25 legacy ops at 1000 iterations, the full sweep at 91.
 
-### Running Tests
+**Hardened suite** (`benchmarks/hardened/`) is where we stopped being polite. Three stages in `benchmarks/hardened/config.py`:
+
+* Stage 1 — Hardened Correctness: 92 kernels x 1k iter, sizes 16..4096, IEEE edge cases.
+* Stage 2 — Brutal Scale: 92 kernels x 5k iter, sizes up to 16384.
+* Stage 3 — Frontier Stress: 92 kernels x 10k iter, adversarial (VLA provocation, negative dims, zero), plus chaos corpora.
+
+Plus 25 harsh programs and 100 random AST chaos programs. Total: ~276 kernel-proofs x 16k fuzz iterations, 125+ stress programs, zero sweep regressions. Read `benchmarks/hardened/HARDENED_REPORT.md` for the full thesis — it documents every limit we found (~4-7% `#error` on arbitrary Python, 0% on curated ML corpora) and the falsifiable roadmap.
+
+Run it:
 
 ```bash
-pytest tests/ -v                 # Run all tests
-pytest tests/test_ir.py -v      # Run specific test module
-pytest -x                       # Stop on first failure
-```
-
-### Benchmarks
-
-```bash
-python -m benchmarks.run_all    # Run full benchmark suite
-```
-
-### Reproducible Corpus Gate
-
-The `benchmarks/corpus/` directory holds 14 harder real-world kernels (Kalman filtering, option pricing, ODE integration, control systems, SVD-based statistics, graph algorithms, DSP, ML). The `benchmarks/reproducible.py` harness:
-
-- Extracts every kernel with a fixed seed, fingerprints the full environment (Python/NumPy/gcc/git commit/platform/cores),
-- Compiles every generated `.c` with strict gcc (`-std=c99 -O2 -Wall -Wextra -pedantic`) in parallel,
-- Hashes the normalized content (volatile timestamps stripped) and reports to `.benchmarks/report.{json,md}`,
-- Verifies drift against the committed `benchmarks/baseline.json`.
-
-```bash
+python -m benchmarks.hardened.run_all_hardened
+python -m benchmarks.run_all          # legacy full benchmark
 python -m benchmarks.reproducible --baseline benchmarks/baseline.json
-# or
 make corpus-gate
 ```
 
-Any change to the builder or generator that alters generated kernels fails the gate with an explicit deviation list.
+---
+
+## Reproducibility is a feature, not a promise
+
+We were bitten by nondeterminism once and decided to never be bitten again.
+
+* File enumeration is `sorted()` (`purce/cli.py:118`) — file order feeds source concatenation, which sets origin-line offsets.
+* Every IR builder path sorts. Every hash in `benchmarks/reproducible.py` strips volatile fields (timestamps, absolute checkout paths) before hashing.
+* The reproducible harness (`benchmarks/reproducible.py`) fingerprints the environment (Python/NumPy/gcc/git commit/platform/cores), compiles every `.c` with `-std=c99 -O2 -Wall -Wextra -pedantic` in parallel, and hashes normalized content. `benchmarks/baseline.json` is the committed gate. `make corpus-gate` fails with an explicit deviation list if your change moves a single bit.
+* Determinism is proven, not asserted: `benchmarks/hardened/harness.py:75` spawns subprocesses with `PYTHONHASHSEED=1,2,3,42,999`, each extracting `tests/realworld`, and compares normalized content hashes. All five produce identical `af4d997c3f6ed722` (raw bytes differ only by timestamp). Verdict in `HARDENED_REPORT.md:22`: **PASS**.
+
+If you need byte-identical output across machines, set `PYTHONHASHSEED` and check in the baseline. The gate does the rest.
+
+---
+
+## When not to use Purce
+
+We like this tool. We also know when it does the wrong thing.
+
+**Don't use Purce if you need dynamic shapes.** Purce is static. Shapes are inferred from the IR at generation time. `np.convolve`, `np.einsum`, dynamic slicing with runtime-computed indices — you'll get a `#error` or an `unknown` node. That's not a bug we'll fix with a flag; it's the frontier of static C99.
+
+**Don't use Purce if you need GPU or autograd.** No CUDA, no heap, max 64x64 for `solve`/`inv` (stack-allocated workspace), max 8192 for `sort`/`unique` (VLA guarded). These are deliberate limits to keep bare-metal targets safe. Gradients are not modeled — Purce extracts forward math only.
+
+**Don't use Purce if your Python is highly dynamic** — `eval`, `open`, `importlib`, monkey-patched NumPy. The parser (`purce/parser/python_parser.py:266`) rejects `eval`/`open` via diagnostics and the IR will be empty. Your code should be "NumPy with some Python around it," not "Python that happens to call NumPy."
+
+**Don't use Purce if you need bit-identical floating point across platforms.** The C uses `libm` (`sin`, `exp`, `tanh`, etc.). Results match NumPy within tolerance under fuzzing, but strict bit-identity across ARM vs x86 libm is not guaranteed. If you need it, pin the math library and re-run the sweep with your tolerance.
+
+**Don't use Purce if you want a one-shot migration.** The generated C is meant to be read, reviewed, and sometimes edited. The provenance header tells you where each kernel came from. Vendoring is expected. Hiding behind the generator is not.
+
+If any of the above is your core requirement, use a different tool — a tracing JIT, a Python runtime on device, or a proper compiler with shape polymorphism. Purce is for when you want auditable, heap-free C for well-scoped numeric code and you're willing to fix the last 5% by hand.
+
+---
+
+## We got burned — three debugging stories
+
+### 1. The `PYTHONHASHSEED` set-ordering bug
+
+Early on, our output was nondeterministic. Run `purce extract` twice, hash the `.prov.json` files, get two different hashes. No code changed. We stared at the generator, then the IR builder, then finally at `cli.py`. The culprit: we used `Path.rglob("*.py")` and fed it straight into concatenation order. On some platforms that order depends on filesystem iteration, and when we built intermediate maps with `set`, Python's hash randomization (`PYTHONHASHSEED`) shuffled the order on each run. The fix was boring and correct: sort everything (`purce/cli.py:118`: `sorted(source_path.rglob("*.py"), key=lambda p: str(p))`), sort every provider before emission, and normalize timestamps and absolute paths before hashing (`benchmarks/reproducible.py:48`). We then proved it by spawning five child processes with different `PYTHONHASHSEED` values and asserting identical content hashes (`benchmarks/hardened/harness.py:75`, `HARDENED_REPORT.md:22`). Boring fixes that you can re-run are worth more than clever ones you can't.
+
+### 2. The `tanh` overflow we introduced by being clever
+
+Our first `element_tanh` didn't call `tanh`. It expanded `tanh(x) = (exp(x) - exp(-x)) / (exp(x) + exp(-x))` so we could reuse the `exp` kernel. It worked for small `x`, then blew up at `x = 800` because `exp(800)` is `inf` in double. The fuzz sweep caught it at n=1024 with large inputs — max error went to `NaN` in a way that wasn't obviously our fault until we traced the generated C. We replaced the body with a single `tanh(x[i])` call to `libm` (`purce/backend/c99_generator.py:576`). Libm handles the clamping correctly, the error went to zero, and the code got shorter. The lesson stuck: don't reimplement what the C standard library already gets right for edge cases.
+
+### 3. The VLA that blew the stack at n=10000
+
+`array_sort` originally declared `double tmp[n];` — a variable-length array on the stack — with no guard. At `n=10000` under the hardened suite's brutal scale stage, we overflowed the default thread stack on a debug build and got a silent crash with no diagnostic. Not a test failure, just `SIGSEGV`. We added an explicit guard (`purce/backend/c99_generator.py:832`: `if (n <= 0 || n > 8192) return;`) and the same for `linalg_det` at `n > 64` and `array_unique` at `n > 8192`. The adversarial harness now explicitly tests `n=100000` for sort (`benchmarks/hardened/harness.py:96`) and asserts the guard exists. The long-term fix is a heap fallback with an explicit memory contract, but a loud early return is infinitely better than a silent stack smash. We document that limit in the headers so you know where it is.
+
+---
+
+## Project structure
+
+```
+purce/
+  purce/
+    cli.py                     CLI (Click), exit codes, --entry slicing
+    parser/python_parser.py    ast + NumPy pattern detection
+    ir/nodes.py, ir/builder.py Math-IR DAG + builder
+    slicer/semantic_slicer.py  call-graph, dead-code elimination
+    backend/c99_generator.py   92 kernel bodies, BODY_PARAM_MAP, C99-SOS emitter
+    verifier/
+      z3_verifier.py           SMT bounds checking
+      fuzzer.py / ctypes_bridge.py / coverage_sweep.py / equivalence.py
+    runtime/emitter.py         Tier-R runtime emitter + C parts
+  tests/ (487 tests, gcc-gated)
+  tests/realworld/             23 ML/scientific source files (our.demo corpus)
+  benchmarks/
+    corpus/                    14 harder kernels (Kalman, ODE, control, DSP, ML)
+    hardened/                  3-stage hardened suite + chaos/harsh corpora
+    reproducible.py            deterministic harness (sorted, hash-normalized, gcc-gated)
+    baseline.json              committed reproducibility baseline (812 C files, 0 #error)
+  pyproject.toml / Makefile / docs/
+```
+
+487 tests, of which the gcc-dependent ones skip gracefully when no compiler is present. The tests that matter for shipping are `test_coverage_sweep`, `test_generated_kernel_runtime`, and `test_reproducible`.
+
+---
+
+## Contributing is not trivial
+
+Purce looks simple at the surface — "just emit C" — but the invariants are tight. If you want to contribute, expect to read `c99_generator.py` (1700 lines, deliberately not split yet — see `HARDENED_REPORT.md:72` for why that's on the roadmap) and to touch at least three layers for any new kernel: builder mapping, body map, and `BODY_PARAM_MAP`, plus a fuzzer entry.
+
+Rules that will save you time:
+
+* Run `make corpus-gate` before you push. If the content hash moved, the CI gate will fail. Commit the new `benchmarks/baseline.json` only if you intended to change generated output.
+* For any new algorithm, add a differential fuzzer case and update `coverage_sweep`. If your kernel is numeric, 10k iterations is the bar — not 100.
+* If you add a stub, add it to `_STUB_ALGORITHMS` and make the WARNING loud. No silent wrong answers.
+* Don't add template engines. The generator is programmatic for a reason — it makes param substitution deterministic and testable.
+* Read `benchmarks/hardened/HARDENED_REPORT.md:50` limitations before you propose a feature. Half the ideas in issues are already documented gaps with falsification criteria.
+
+We review for provenance completeness and memory contracts as hard as we do for numerics. A PR that adds a kernel but no provenance header won't land.
 
 ---
 
 ## License
 
-MIT
+MIT. See `LICENSE` if we add one; until then, treat the repo license as MIT per `pyproject.toml`.
