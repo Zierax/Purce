@@ -78,7 +78,7 @@ def _try_c_backend():
     try:
         fuzzer, compiled = DifferentialFuzzer.with_c_backend()
         return fuzzer, compiled
-    except (RuntimeError, OSError) as e:
+    except Exception as e:  # noqa: BLE001 - compiler may raise TimeoutExpired, FileNotFoundError, etc.
         click.echo(f"  Warning: C backend unavailable ({e}); fuzzing will NOT test compiled C.", err=True)
         return DifferentialFuzzer(), None
 
@@ -119,7 +119,7 @@ def _process_source(
 
     if not py_files:
         click.echo("Error: No Python files found in source directory", err=True)
-        sys.exit(1)
+        sys.exit(EXIT_FAILURE)
 
     logger.info("Found %d Python files", len(py_files))
 
@@ -137,8 +137,12 @@ def _process_source(
             for fn in result.functions:
                 logger.debug("  Extracted: %s (%s)", fn.name, fn.algorithm)
 
-        with open(py_file, "r", encoding="utf-8") as f:
-            combined_source += f.read() + "\n"
+        try:
+            with open(py_file, "r", encoding="utf-8") as f:
+                combined_source += f.read() + "\n"
+        except (OSError, UnicodeDecodeError) as e:
+            click.echo(f"Warning: could not read {py_file}: {e}", err=True)
+            continue
 
     if all_diagnostics and verbose:
         logger.debug("\nDiagnostics (%d):", len(all_diagnostics))
@@ -173,7 +177,7 @@ def _process_source(
             f"Error: {len(slice_result.data_assets)} data assets found but --embed-assets not set",
             err=True,
         )
-        sys.exit(1)
+        sys.exit(EXIT_FAILURE)
 
     fixed_point = target in ("bare-arm-q31", "bare-arm-q15")
     generator = C99Generator(
@@ -236,6 +240,13 @@ def _process_source(
                 status = "PASS" if result.all_passed else "FAIL"
                 tested = "C" if result.tested_c else "python-only"
                 _info(quiet, f"  Fuzz {op}: {status} ({result.passed}/{result.iterations}, {tested})")
+            if compiled is None and not any(r.tested_c for r in fuzz_results.values()):
+                click.echo(
+                    "\nWarning: no C compiler available; differential results were "
+                    "python self-comparison and do NOT verify generated C.",
+                    err=True,
+                )
+                sys.exit(EXIT_UNVERIFIED)
             failed_ops = [op for op, r in fuzz_results.items() if not r.all_passed]
             if failed_ops:
                 click.echo(

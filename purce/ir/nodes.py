@@ -112,7 +112,9 @@ class MathIRGraph:
                     in_degree[nid] += 1
                     dependents[dep_id].append(nid)
 
-        queue = [nid for nid, deg in in_degree.items() if deg == 0]
+        for dep_list in dependents.values():
+            dep_list.sort()
+        queue = sorted([nid for nid, deg in in_degree.items() if deg == 0])
         order: list[MathIRNode] = []
 
         while queue:
@@ -122,8 +124,9 @@ class MathIRGraph:
                 in_degree[dependent_id] -= 1
                 if in_degree[dependent_id] == 0:
                     queue.append(dependent_id)
+            queue.sort()
 
-        for nid in self.nodes:
+        for nid in sorted(self.nodes):
             if nid not in [n.node_id for n in order]:
                 order.append(self.nodes[nid])
 
@@ -145,15 +148,15 @@ class MathIRGraph:
                     stack.append(dep_id)
 
         sub = MathIRGraph(entry_points=list(entry_ids))
-        for nid in reachable:
+        for nid in sorted(reachable):
             sub.nodes[nid] = self.nodes[nid]
         return sub
 
     def validate_dag(self) -> list[str]:
         """Return list of errors if graph has cycles or broken deps."""
         errors: list[str] = []
-        for nid, node in self.nodes.items():
-            for dep_id in node.nested_deps:
+        for nid, node in sorted(self.nodes.items()):
+            for dep_id in sorted(node.nested_deps):
                 if dep_id not in self.nodes:
                     errors.append(f"Node '{nid}' depends on missing node '{dep_id}'")
 
@@ -170,14 +173,14 @@ class MathIRGraph:
                 in_stack.add(nid)
                 node = self.nodes.get(nid)
                 if node:
-                    for dep_id in node.nested_deps:
+                    for dep_id in sorted(node.nested_deps):
                         if _check_cycle(dep_id):
-                            errors.append(f"Cycle detected involving '{dep_id}'")
+                            errors.append(f"Cycle detected involving '{nid}'")
                             return True
                 in_stack.discard(nid)
                 return False
 
-            for nid in self.nodes:
+            for nid in sorted(self.nodes):
                 _check_cycle(nid)
 
         return errors

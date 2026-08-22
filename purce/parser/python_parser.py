@@ -6,27 +6,21 @@ from dataclasses import dataclass, field
 from purce.ir.builder import NUMPY_OP_MAP
 from purce.ir.nodes import DepKind, Dtype, Effect, MathIRGraph, MathIRNode, ReductionEntry
 
-SUPPORTED_MODULES = {
-    "numpy": {
-        "dot", "matmul", "add", "subtract", "multiply", "divide",
-        "zeros", "ones", "eye", "array",
-        "sum", "mean", "max", "min", "var",
-        "sqrt", "abs", "exp", "log", "sin", "cos", "tan", "tanh",
-        "maximum", "minimum", "power", "where", "clip",
-        "negative", "sign", "floor", "transpose",
-        "greater", "less", "log10", "logaddexp",
-        "conj", "angle", "real", "imag",
-        "outer", "diag", "copy",
-        "arange", "linspace", "full", "full_like",
-        "ones_like", "zeros_like",
-        "concatenate", "take", "take_along_axis",
-        "argsort", "tril", "triu",
-        "reshape", "squeeze", "expand_dims", "flatten",
-    },
-    "numpy.linalg": {"solve", "inv", "cholesky", "eig", "norm"},
-    "numpy.fft": {"fft", "ifft"},
-    "numpy.random": {"randn", "random", "randint", "uniform", "seed", "beta", "permutation"},
-}
+def _build_supported_modules() -> dict[str, set[str]]:
+    mods: dict[str, set[str]] = {}
+    for full in NUMPY_OP_MAP:
+        parts = full.split(".")
+        if len(parts) < 2 or parts[0] != "numpy":
+            continue
+        if len(parts) == 2:
+            mod, op = "numpy", parts[1]
+        else:
+            mod, op = ".".join(parts[:-1]), parts[-1]
+        mods.setdefault(mod, set()).add(op)
+    return mods
+
+
+SUPPORTED_MODULES: dict[str, set[str]] = _build_supported_modules()
 
 
 @dataclass

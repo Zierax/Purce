@@ -831,6 +831,7 @@ MATH_KERNEL_BODIES: dict[str, str] = {
     }""",
     "array_sort": """\
     /* Insertion sort (stable, O(n^2) but fine for small arrays) */
+    if (n <= 0 || n > 8192) return;
     double tmp[n];
     for (int i = 0; i < n; i++) { tmp[i] = x[i]; }
     for (int i = 1; i < n; i++) {
@@ -845,6 +846,7 @@ MATH_KERNEL_BODIES: dict[str, str] = {
     for (int i = 0; i < n; i++) { out[i] = tmp[i]; }""",
     "linalg_det": """\
     /* Determinant via LU decomposition */
+    if (n <= 0 || n > 64) return;
     double det = 1.0;
     double lu[n * n];
     for (int i = 0; i < n * n; i++) lu[i] = x[i];
@@ -907,6 +909,7 @@ MATH_KERNEL_BODIES: dict[str, str] = {
     double cum = 0.0;
     for (int i = 0; i < n; i++) { cum += x[i]; out[i] = cum; }""",
     "reduce_diff": """\
+    if (n <= 0) return;
     out[0] = x[0];
     for (int i = 1; i < n; i++) { out[i] = x[i] - x[i-1]; }""",
     "element_round": """\
@@ -916,16 +919,16 @@ MATH_KERNEL_BODIES: dict[str, str] = {
         out[i] = ceil(x[i]);
     }""",
     "element_trunc": """\
-    for (int i = 0; i < n; i++) { out[i] = (double)(int)x[i]; }""",
+    for (int i = 0; i < n; i++) { out[i] = trunc(x[i]); }""",
     "element_isclose": """\
     for (int i = 0; i < n; i++) {
-        out[i] = (fabs(A[i] - B[i]) <= 1e-8) ? 1.0 : 0.0;
+        out[i] = (fabs(A[i] - B[i]) <= (1e-8 + 1e-5 * fabs(B[i]))) ? 1.0 : 0.0;
     }""",
     "element_isnan": """\
     for (int i = 0; i < n; i++) { out[i] = (x[i] != x[i]) ? 1.0 : 0.0; }""",
     "element_isinf": """\
     for (int i = 0; i < n; i++) {
-        out[i] = (x[i] > 1e308 || x[i] < -1e308) ? 1.0 : 0.0;
+        out[i] = isinf(x[i]) ? 1.0 : 0.0;
     }""",
     "element_finfo": """\
     result_ptr[0] = 2.2250738585072014e-308;""",
@@ -959,6 +962,7 @@ MATH_KERNEL_BODIES: dict[str, str] = {
     /* np.unique semantics: sorted unique values in out[0..k-1] and the
      * per-value occurrence counts (in the same order) in out_count[0..k-1].
      * The kernel writes k = out_count[0]; the caller sizes buffers to n. */
+    if (n <= 0 || n > 8192) return;
     double tmp[n];
     for (int i = 0; i < n; i++) { tmp[i] = x[i]; }
     for (int i = 1; i < n; i++) {
@@ -1376,7 +1380,7 @@ class C99Generator:
                 'return', 'sizeof', 'NULL', 'true', 'false', 'static', 'inline',
                 'const', 'restrict', 'unsigned', 'long', 'short', 'char',
                 'memset', 'memcpy', 'fabs', 'sqrt', 'exp', 'log', 'sin', 'cos',
-                'tan', 'tanh', 'pow', 'atan2', 'fmin', 'fmax', 'floor', 'ceil', 'signbit',
+                'tan', 'tanh', 'pow', 'atan2', 'fmin', 'fmax', 'floor', 'ceil', 'trunc', 'isinf', 'signbit',
                 'log10', 'log1p',
                 'M_PI', 'size_t', 'uint8_t', 'int32_t', 'uint32_t',
                 'continue', 'break', 'do',

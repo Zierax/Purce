@@ -60,7 +60,7 @@ class SemanticSlicer:
         reachable: set[str],
         result: SliceResult,
     ) -> None:
-        for nid in reachable:
+        for nid in sorted(reachable):
             node = source_graph.nodes.get(nid)
             if node is None:
                 continue
@@ -127,7 +127,7 @@ class SemanticSlicer:
     def prune_unused(self, graph: MathIRGraph, entry_points: list[str]) -> MathIRGraph:
         reachable = self._reachability(graph, entry_points)
         pruned = MathIRGraph(entry_points=list(entry_points))
-        for nid in reachable:
+        for nid in sorted(reachable):
             if nid in graph.nodes:
                 pruned.nodes[nid] = graph.nodes[nid]
         return pruned
