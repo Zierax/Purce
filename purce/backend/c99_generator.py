@@ -831,8 +831,9 @@ MATH_KERNEL_BODIES: dict[str, str] = {
     }""",
     "array_sort": """\
     /* Insertion sort (stable, O(n^2) but fine for small arrays) */
-    if (n <= 0 || n > 8192) return;
-    double tmp[n];
+    if (n <= 0) return;
+    double *tmp = (double*)malloc(n * sizeof(double));
+    if (!tmp) return;
     for (int i = 0; i < n; i++) { tmp[i] = x[i]; }
     for (int i = 1; i < n; i++) {
         double key = tmp[i];
@@ -843,12 +844,14 @@ MATH_KERNEL_BODIES: dict[str, str] = {
         }
         tmp[j + 1] = key;
     }
-    for (int i = 0; i < n; i++) { out[i] = tmp[i]; }""",
+    for (int i = 0; i < n; i++) { out[i] = tmp[i]; }
+    free(tmp);""",
     "linalg_det": """\
     /* Determinant via LU decomposition */
-    if (n <= 0 || n > 64) return;
+    if (n <= 0) return;
+    double *lu = (double*)malloc(n * n * sizeof(double));
+    if (!lu) return;
     double det = 1.0;
-    double lu[n * n];
     for (int i = 0; i < n * n; i++) lu[i] = x[i];
     for (int k = 0; k < n; k++) {
         double max_val = fabs(lu[k * n + k]);
@@ -876,6 +879,7 @@ MATH_KERNEL_BODIES: dict[str, str] = {
             }
         }
     }
+    free(lu);
     result_ptr[0] = det;""",
     "reduce_argmax": """\
     int max_idx = 0;
@@ -962,8 +966,9 @@ MATH_KERNEL_BODIES: dict[str, str] = {
     /* np.unique semantics: sorted unique values in out[0..k-1] and the
      * per-value occurrence counts (in the same order) in out_count[0..k-1].
      * The kernel writes k = out_count[0]; the caller sizes buffers to n. */
-    if (n <= 0 || n > 8192) return;
-    double tmp[n];
+    if (n <= 0) return;
+    double *tmp = (double*)malloc(n * sizeof(double));
+    if (!tmp) return;
     for (int i = 0; i < n; i++) { tmp[i] = x[i]; }
     for (int i = 1; i < n; i++) {
         double key = tmp[i];
@@ -986,7 +991,8 @@ MATH_KERNEL_BODIES: dict[str, str] = {
     if (n > 0) {
         out[g] = tmp[n - 1];
         out_count[g] = (double)count;
-    }""",
+    }
+    free(tmp);""",
     "linalg_qr": """\
     /* Simplified: copy input as Q, set R = I (stub for Gram-Schmidt) */
     for (int i = 0; i < n * n; i++) out_q[i] = x[i];
@@ -1048,7 +1054,10 @@ def _build_body_param_mapping(node: MathIRNode) -> dict[str, str]:
     mapping: dict[str, str] = {}
 
     for canonical, source in mapping_spec:
-        if source.startswith("input_"):
+        if source.startswith("input_") and source.endswith("_len"):
+            # e.g. input_0_len → length of input_0, mapped to canonical (n/k)
+            mapping[canonical] = canonical
+        elif source.startswith("input_"):
             idx = int(source.split("_")[1])
             if idx < len(node.inputs):
                 mapping[canonical] = _sanitize_name(node.inputs[idx][0])
@@ -1379,14 +1388,14 @@ class C99Generator:
                 'int', 'double', 'float', 'void', 'for', 'if', 'else', 'while',
                 'return', 'sizeof', 'NULL', 'true', 'false', 'static', 'inline',
                 'const', 'restrict', 'unsigned', 'long', 'short', 'char',
-                'memset', 'memcpy', 'fabs', 'sqrt', 'exp', 'log', 'sin', 'cos',
+                'memset', 'memcpy', 'malloc', 'free', 'fabs', 'sqrt', 'exp', 'log', 'sin', 'cos',
                 'tan', 'tanh', 'pow', 'atan2', 'fmin', 'fmax', 'floor', 'ceil', 'trunc', 'isinf', 'signbit',
                 'log10', 'log1p',
                 'M_PI', 'size_t', 'uint8_t', 'int32_t', 'uint32_t',
                 'continue', 'break', 'do',
             }
             _mapped_names = set(mapping.values())
-            _loop_vars = {'i', 'j', 'k', 't', 'u', 'bit', 'mask', 'col', 'row', 'half', 'size', 'factor', 'max_row', 'min_val', 'max_val', 'sum', 'a_ik', 'pivot', 'center', 'radius', 'angle', 'cur_w_re', 'cur_w_im', 'new_w_re', 'new_w_im', 'tmp_re', 'tmp_im', 'u_idx', 't_idx', 'aug', 'denom', 'val', 'cond', 'a_val', 'b_val', 's', 'out', 'eigenvalues', 'L', 'idx_val', 'v', 'state', 'key', 'key_idx', 'tmp', 'a_max', 'a_min', 'norm_sum', 'var_mean', 'var_sum', 'd', 'n_out', 'n_a', 'n_b', 'spec', 'h', 'per_iter', 'n_iters', 'all_val', 'any_val', 'prod', 'cum', 'count', 'det', 'lu', 'min_idx', 'max_idx', 'r', 'idx', 'g', 't_re', 't_im', 'w_re', 'w_im', 'purce_rng_state'}
+            _loop_vars = {'i', 'j', 'k', 't', 'u', 'bit', 'mask', 'col', 'row', 'half', 'size', 'factor', 'max_row', 'min_val', 'max_val', 'sum', 'a_ik', 'pivot', 'center', 'radius', 'angle', 'cur_w_re', 'cur_w_im', 'new_w_re', 'new_w_im', 'tmp_re', 'tmp_im', 'u_idx', 't_idx', 'aug', 'denom', 'val', 'cond', 'a_val', 'b_val', 's', 'out', 'eigenvalues', 'L', 'idx_val', 'v', 'state', 'key', 'key_idx', 'tmp', 'a_max', 'a_min', 'norm_sum', 'var_mean', 'var_sum', 'd', 'n_out', 'n_a', 'n_b', 'spec', 'h', 'per_iter', 'n_iters', 'all_val', 'any_val', 'prod', 'cum', 'count', 'det', 'lu', 'min_idx', 'max_idx', 'r', 'idx', 'g', 't_re', 't_im', 'w_re', 'w_im', 'purce_rng_state', 'dot', 'norm'}
             _canon_valid = set(mapping.keys())
             _const_names = set(scalar_constants.keys())
             _unresolved = _body_ids - _c_builtins - _mapped_names - _canon_valid - _loop_vars - _const_names
@@ -1495,6 +1504,7 @@ class C99Generator:
             " * ═══════════════════════════════════════════════════════════════════════════ */",
             "",
             "#include <stdint.h>",
+            "#include <stdlib.h>",
             "#include <math.h>",
             "#include <string.h>",
             "",

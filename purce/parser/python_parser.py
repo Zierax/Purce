@@ -126,6 +126,8 @@ class PythonParser:
             ))
             return result
 
+        self._alias_map = self._build_alias_map(tree)
+
         for node in ast.iter_child_nodes(tree):
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 parsed = self._parse_function(node, filename)
@@ -233,7 +235,36 @@ class PythonParser:
             parts.append(current.id)
         return ".".join(reversed(parts))
 
+    def _build_alias_map(self, tree: ast.Module) -> dict[str, str]:
+        alias: dict[str, str] = {}
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alt in node.names:
+                    name = alt.name  # e.g. numpy.linalg
+                    asname = alt.asname or name.split(".")[0]
+                    # alias the imported name's top-level to full name
+                    # import numpy.linalg as la -> la -> numpy.linalg
+                    # import numpy -> numpy -> numpy
+                    alias[asname] = name
+            elif isinstance(node, ast.ImportFrom):
+                mod = node.module or ""
+                for alt in node.names:
+                    orig = alt.name
+                    asname = alt.asname or orig
+                    # from numpy import dot -> dot -> numpy.dot
+                    # from numpy.linalg import solve -> solve -> numpy.linalg.solve
+                    alias[asname] = f"{mod}.{orig}" if mod else orig
+        return alias
+
     def _normalize_numpy_target(self, target: str) -> str | None:
+        # Resolve import aliases (from ... import, import as)
+        alias_map = getattr(self, "_alias_map", {})
+        if target in alias_map:
+            target = alias_map[target]
+        elif "." in target:
+            first, rest = target.split(".", 1)
+            if first in alias_map:
+                target = alias_map[first] + "." + rest
         if target.startswith("np."):
             target = "numpy." + target[3:]
         if not target.startswith("numpy."):
