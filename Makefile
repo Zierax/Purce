@@ -18,7 +18,7 @@ clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 
 benchmark:
-	python benchmarks/benchmark_matmul.py
+	python -m benchmarks.run_all
 
 corpus-gate:
 	python -m benchmarks.reproducible --baseline benchmarks/baseline.json

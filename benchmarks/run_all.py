@@ -1,5 +1,5 @@
 """Run all benchmarks and report results."""
-import os
+import subprocess
 import sys
 import time
 
@@ -9,8 +9,8 @@ def _run_benchmark(name: str, module: str) -> bool:
     print(f"  {name}")
     print(f"{'='*60}\n")
     try:
-        result = os.system(f"{sys.executable} -m benchmarks.{module}")
-        return result == 0
+        result = subprocess.run([sys.executable, "-m", f"benchmarks.{module}"])
+        return result.returncode == 0
     except Exception as e:
         print(f"  ERROR: {e}")
         return False

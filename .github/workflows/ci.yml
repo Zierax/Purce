@@ -31,6 +31,9 @@ jobs:
       - name: Run fuzz verification
         run: python -c "from purce.verifier.fuzzer import DifferentialFuzzer; r = DifferentialFuzzer(seed=42).fuzz_all(iterations=50); fails = [k for k,v in r.items() if not v.all_passed]; assert not fails, f'Fuzz failures: {fails}'"
 
+      - name: Run corpus gate
+        run: python -m benchmarks.reproducible --baseline benchmarks/baseline.json
+
   lint:
     runs-on: ubuntu-latest
     steps:
@@ -46,5 +49,11 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
 
+      - name: Ruff check
+        run: ruff check purce/ tests/
+
+      - name: Ruff format
+        run: ruff format --check purce/ tests/
+
       - name: Type check
-        run: python -m mypy purce/ --ignore-missing-imports || true
+        run: python -m mypy purce/ --ignore-missing-imports
