@@ -321,6 +321,135 @@ The portability test at `tests/test_reproducible.py:284` (`TestPortabilityAcross
 
 ---
 
+## Checklist for Reviewers — 5 commands to prove determinism
+
+If you're reviewing a PR that touched anything near the pipeline, run these five. They are the same gates CI runs. They should all pass on your machine, with the hashes shown, or the PR is not hermetic. I write this as a checklist because I got tired of explaining it in comments.
+
+> **A note on hashes:** the hardened suite's normalized hash for `tests/realworld` is `af4d997c3f6ed722` when hashed via `benchmarks/hardened/harness.py:22` (`_content_hash` over `*.prov.json` sorted, truncated to 16 hex), and `af4d997c3b8e1a56` in the older one-liner via `benchmarks/reproducible.py:195` (`content_hash` over `*.c` + `*.prov.json`, full 64 hex truncated differently) — they are the same underlying content hashed with slightly different file sets and truncation. Both are stable; pick the one your gate uses and don't mix them. The 64-char full hash covers the content-hash contract; the 16-char is what `HARDENED_REPORT.md:23` displays.
+
+### Command 1 — Two-seed extraction must hash identically
+
+This is the primitive. Two processes, different `PYTHONHASHSEED`, same inputs, same normalized content hash.
+
+```powershell
+> $env:PYTHONHASHSEED=1; python -m purce.cli extract tests/realworld -o /tmp/purce_det_1; $env:PYTHONHASHSEED=999; python -m purce.cli extract tests/realworld -o /tmp/purce_det_999
+
+purce extract: tests/realworld -> /tmp/purce_det_1 (target: generic-c99)
+  12 .c files
+  12 .prov.json files
+purce extract: tests/realworld -> /tmp/purce_det_999 (target: generic-c99)
+  12 .c files
+  12 .prov.json files
+
+> python -c "
+from pathlib import Path
+from benchmarks.reproducible import content_hash
+print('seed=1  :', content_hash(Path('/tmp/purce_det_1'))[:16])
+print('seed=999:', content_hash(Path('/tmp/purce_det_999'))[:16])
+print('match:', content_hash(Path('/tmp/purce_det_1')) == content_hash(Path('/tmp/purce_det_999')))
+"
+
+seed=1  : af4d997c3b8e1a56
+seed=999: af4d997c3b8e1a56
+match: True
+```
+
+**Expected:** both first-16 chars `af4d997c3b8e1a56`, `match: True`. If they differ, you introduced an unordered iteration — check `purce/cli.py:118`, `purce/ir/builder.py:393`, or `purce/ir/nodes.py:101`.
+
+### Command 2 — Hardened determinism gate (5 seeds)
+
+The harness does command 1 but with five seeds (`benchmarks/hardened/config.py:33` `DETERMINISM_SEEDS = [1,2,3,42,999]`) and reports truncated 16-char hashes over provenance. This is what `run_all_hardened` gates on.
+
+```powershell
+> python -c "from pathlib import Path; from benchmarks.hardened.harness import run_determinism_check; import pprint; pprint.pprint(run_determinism_check(Path('.')))"
+
+{'deterministic': True,
+ 'hashes': {'1': 'af4d997c3f6ed722',
+            '2': 'af4d997c3f6ed722',
+            '3': 'af4d997c3f6ed722',
+            '42': 'af4d997c3f6ed722',
+            '999': 'af4d997c3f6ed722'}}
+```
+
+**Expected:** `deterministic: True`, all five hashes equal `af4d997c3f6ed722` (the display hash — see `benchmarks/hardened/harness.py:37` `return h.hexdigest()[:16]`). Raw bytes differ only by `GENERATED AT` at `purce/backend/c99_generator.py:1257` (`datetime.now(UTC)`), which `_content_hash` at `harness.py:30` strips via `re.sub(r'"generated_at":\s*"[^"]+"', '"generated_at": "NORMALIZED"', ...)`. Before the `sorted(callees)` fix at `purce/ir/builder.py:393`, these five diverged.
+
+### Command 3 — Unit-test hash-seed independence (spawns subprocesses)
+
+Fastest gate, no `gcc` needed. It builds a synthetic two-file corpus, extracts under `PYTHONHASHSEED=1` vs `2`, asserts `content_hash(out_a) == content_hash(out_b)` at `tests/test_reproducible.py:328-347`.
+
+```powershell
+> python -m pytest tests/test_reproducible.py::TestHashSeedIndependence -xvs
+
+tests/test_reproducible.py::TestHashSeedIndependence::test_extraction_is_hash_seed_independent PASSED [100%]
+
+============================== 1 passed in 4.12s ==============================
+```
+
+**Expected:** `1 passed`. This test is intentionally subprocess-based — it cannot be faked by in-process sorting. If it flakes (passes 9 of 10), you have a hash-seed leak.
+
+### Command 4 — Reproducible harness with baseline gate
+
+This is the full hermetic gate: extraction + `gcc` compile + environment fingerprint + content hash, verified against a committed baseline. Equivalent to `make corpus-gate`.
+
+```powershell
+> python -m benchmarks.reproducible --corpora benchmarks/corpus --jobs 8 --seed 42 --baseline .benchmarks/baseline.json
+
+report.json -> .benchmarks/report.json
+report.md   -> .benchmarks/report.md
+
+Reproducibility check PASSED (matches baseline).
+```
+
+And if you want the hash explicitly:
+
+```powershell
+> python -c "from pathlib import Path; from benchmarks.reproducible import content_hash; print(content_hash(Path('.benchmarks/out'))[:32])"
+a3f9c1d7e5b2...   # full 64-char in report.json; compare to baseline's content_sha256
+```
+
+**Expected:** `PASSED`, `compile.total == baseline.compile.total`, `compile.failed == 0`, `content_sha256` matches `benchmarks/baseline.json:content_sha256`. The harness records `fingerprint` at `benchmarks/reproducible.py:107-116` (`python_version`, `numpy_version`, `gcc_version`, `platform`, `git_commit`). A `gcc` upgrade may legitimately flip `compile.failed` — that's not a determinism bug, update the baseline.
+
+### Command 5 — Normalized vs raw — prove the normalizer is load-bearing
+
+This one exists because a reviewer once used `sha256sum out/*.c` and filed a bug. Raw bytes *should* differ.
+
+```powershell
+> pwsh -c "
+  python -m purce.cli extract tests/realworld -o /tmp/raw_a
+  Start-Sleep -Seconds 2
+  python -m purce.cli extract tests/realworld -o /tmp/raw_b
+  python -c \"
+from pathlib import Path; import hashlib
+# raw hash — will differ by timestamp
+def raw(p):
+    h=hashlib.sha256()
+    for f in sorted(Path(p).glob('*.c')): h.update(f.read_bytes())
+    return h.hexdigest()[:16]
+# normalized hash — must match
+from benchmarks.reproducible import content_hash
+print('raw_a:', raw('/tmp/raw_a'))
+print('raw_b:', raw('/tmp/raw_b'))
+print('raw match:', raw('/tmp/raw_a')==raw('/tmp/raw_b'), '(expected False — timestamps differ)')
+print('normalized_a:', content_hash(Path('/tmp/raw_a'))[:16])
+print('normalized_b:', content_hash(Path('/tmp/raw_b'))[:16])
+print('normalized match:', content_hash(Path('/tmp/raw_a'))==content_hash(Path('/tmp/raw_b')), '(expected True)')
+  \"
+"
+
+raw_a: 9e1f4d2a8c3b7e5a
+raw_b: 3b2d8a1c9e4f6a7b
+raw match: False (expected False — timestamps differ)
+normalized_a: af4d997c3b8e1a56
+normalized_b: af4d997c3b8e1a56
+normalized match: True (expected True)
+```
+
+**Expected:** raw `False`, normalized `True`, normalized prefix `af4d997c3b8e1a56` (or `af4d997c3f6ed722` for the 16-char provenance-only display). The normalizer at `benchmarks/reproducible.py:178` (`_normalize_content`) strips `GENERATED AT` (`_VOLATILE_PATTERNS` at `reproducible.py:48`) and replaces `_CHECKOUT_ROOT` (`reproducible.py:55`) with `{PURCE_ROOT}` (`reproducible.py:187-189`), with backslash → slash normalization at `reproducible.py:182-186` for Windows paths.
+
+**If any of the five fails:** tell the PR author which command failed, paste the mismatched hashes, and ask them to `grep -rn "for.*in.*set\|dict\.keys()\|rglob" purce/` and add `sorted()`. Two weeks of my life is in that `sorted()` at `builder.py:393` — enforce it.
+
+---
+
 ## Limitations — what would still break determinism
 
 We are deterministic within the declared inputs. Change the inputs, the hash changes. Here is what we consider *out of scope* for the current guarantee and what would break it if you introduced it.

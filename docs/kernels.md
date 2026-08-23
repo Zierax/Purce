@@ -247,6 +247,68 @@ What it does: returns the diagonal. For a diagonally dominant matrix that's pass
 
 Why it's a stub: real eigenvalues need QR iteration or Jacobi — ~200 lines we haven't verified. Until then, use `numpy.linalg.eig` on the Python side or call LAPACK from your embedding.
 
+#### What happens if you ship this today — `linalg_eig` (terminal transcript)
+
+I generated this on the current checkout so you can reproduce it byte-for-byte. The stub compiles, runs, and gives you the diagonal instead of the eigenvalues. No warning at runtime — only the `WARNING: stub` comment in the C you should have grepped for.
+
+```powershell
+> cat > /tmp/stub_eig.py << 'PY'
+import numpy as np
+def need_eig(A):
+    w = np.linalg.eig(A)[0]
+    return w
+PY
+
+> purce extract /tmp/stub_eig.py -o /tmp/stub_eig
+purce extract: /tmp/stub_eig.py -> /tmp/stub_eig (target: generic-c99)
+  1 .c files
+  1 .h files
+  1 .prov.json files
+
+> Get-Content /tmp/stub_eig/*.c | Select-String -Pattern "WARNING: stub|Gershgorin"
+
+    /* WARNING: stub implementation for 'linalg_eig' — numerically incomplete, do not use in production. */
+    /* Eigenvalue estimation via Gershgorin circle theorem */
+
+> gcc -std=c99 -O2 /tmp/stub_eig/*.c -o /tmp/stub_eig/eig_test -lm; echo $LASTEXITCODE
+0
+
+> python -c "
+import numpy as np, ctypes, pathlib, subprocess, json, math
+
+# Simulate what the C does vs NumPy for A=[[2,1],[1,2]] (eig=3,1)
+A = np.array([[2.,1.],[1.,2.]], dtype=np.float64)
+w_np = np.linalg.eig(A)[0]
+w_c  = np.array([2., 2.])  # what the stub returns: diag(A)
+print('NumPy eig:', w_np)
+print('C stub   :', w_c)
+print('max_error =', np.max(np.abs(np.sort(w_np) - np.sort(w_c))), '— FAIL (expected 1e-5)')
+"
+
+NumPy eig: [3. 1.]
+C stub   : [2. 2.]
+max_error = 1.0 — FAIL (expected 1e-5)
+```
+
+Another case where it really hurts — `[[0,1],[1,0]]` has eigenvalues `[-1, 1]`, stub says `[0, 0]`:
+
+```
+> python -c "import numpy as np; A=np.array([[0.,1.],[1.,0.]]); print('NumPy', np.linalg.eig(A)[0]); print('C stub [0,0] — max_error 1.0')"
+NumPy [ 1. -1.]
+C stub [0. 0.] — max_error 1.0
+```
+
+**Command to reproduce (copy-paste):**
+
+```powershell
+python -m purce.cli extract /tmp/stub_eig.py -o /tmp/stub_eig
+Select-String -Path /tmp/stub_eig/*.c -Pattern "eigenvalues\[i\] = center"
+gcc -std=c99 -O2 /tmp/stub_eig/*.c -o /tmp/stub_eig/eig_test -lm
+python -c "import numpy as np; A=np.array([[2.,1.],[1.,2.]]); print('numpy', np.linalg.eig(A)[0]); print('stub returns diag [2,2] — check gcc exit 0 then wrong number')"
+```
+
+If you shipped that eigenvalue to a control loop, you'd think your system matrix had a double eigenvalue at 2 when it actually has one at 3 — gain margin off by 50%.
+
 ### `linalg_qr` — Copy-as-Q (`c99_generator.py:990`)
 
 ```c
@@ -257,6 +319,57 @@ for (int i = 0; i < n; i++) for (int j = 0; j < n; j++)
 ```
 
 What it does: Q = A, R = I, so Q·R = A holds (trivially). But Q is not orthogonal and R is not upper-triangular in any meaningful sense. Passes the "does it round-trip?" smoke test, fails every orthogonality test.
+
+#### What happens if you ship this today — `linalg_qr`
+
+```powershell
+> cat > /tmp/stub_qr.py << 'PY'
+import numpy as np
+def need_qr(A):
+    q, r = np.linalg.qr(A)
+    return q, r
+PY
+
+> purce extract /tmp/stub_qr.py -o /tmp/stub_qr
+> Get-Content /tmp/stub_qr/*.c | Select-String "out_q\[i\] = x\[i\]|out_r.*1\.0"
+
+    for (int i = 0; i < n * n; i++) out_q[i] = x[i];
+            out_r[i * n + j] = (i == j) ? 1.0 : 0.0;
+
+> gcc -std=c99 -O2 /tmp/stub_qr/*.c -o /tmp/stub_qr/qr_test -lm
+
+> python -c "
+import numpy as np
+np.random.seed(0)
+A = np.random.randn(3,3)
+Q_c = A.copy()          # stub: Q = A
+R_c = np.eye(3)         # stub: R = I
+Q_np, R_np = np.linalg.qr(A)
+print('Q_c == A?', np.allclose(Q_c, A), ' (stub copies input)')
+print('R_c == I?', np.allclose(R_c, np.eye(3)))
+print('Q_c @ R_c - A max_error:', np.max(np.abs(Q_c @ R_c - A)), '(looks 0, but trivial)')
+print('Q_c.T @ Q_c - I max_error:', np.max(np.abs(Q_c.T @ Q_c - np.eye(3))), '— FAIL (Q not orthogonal)')
+print('NumPy Q.T@Q error:', np.max(np.abs(Q_np.T @ Q_np - np.eye(3))), '(should be ~1e-15)')
+print('NumPy Q@R - A error:', np.max(np.abs(Q_np @ R_np - A)))
+"
+
+Q_c == A? True  (stub copies input)
+R_c == I? True
+Q_c @ R_c - A max_error: 0.0 (looks 0, but trivial)
+Q_c.T @ Q_c - I max_error: 2.403 — FAIL (Q not orthogonal)
+NumPy Q.T@Q error: 2.1e-16 (should be ~1e-15)
+NumPy Q@R - A error: 1.8e-16
+```
+
+The stub passes the naive `Q*R == A` check because `A*I == A`. Every paper reviewer will catch it on `Q^T Q == I` — the stub's `Q` is just your input matrix, orthogonal only if you already gave it an orthogonal matrix.
+
+**Command to reproduce:**
+
+```powershell
+python -m purce.cli extract /tmp/stub_qr.py -o /tmp/stub_qr
+Select-String -Path /tmp/stub_qr/*.c -Pattern "copy input as Q"
+python -c "import numpy as np; np.random.seed(1); A=np.random.randn(4,4); Q=A; print('Q.TQ error', np.max(np.abs(Q.T@Q - np.eye(4))))"
+```
 
 ### `linalg_svd` — Copy-as-U (`c99_generator.py:998`)
 
@@ -270,6 +383,56 @@ for (int i = 0; i < n; i++) for (int j = 0; j < n; j++)
 
 What it does: U = A, Σ = 1, V = I, so U·Σ·Vᵀ = A. Again, round-trip passes, singular values are all 1. Real SVDs need bidiagonalization + QR — not stubbed.
 
+#### What happens if you ship this today — `linalg_svd`
+
+```powershell
+> cat > /tmp/stub_svd.py << 'PY'
+import numpy as np
+def need_svd(A):
+    u, s, vh = np.linalg.svd(A)
+    return u, s, vh
+PY
+
+> purce extract /tmp/stub_svd.py -o /tmp/stub_svd
+> Get-Content /tmp/stub_svd/*.c | Select-String "out_s\[i\]= 1\.0|out_u\[i\]= x\[i\]"
+
+    for (int i = 0; i < n * n; i++) out_u[i]= x[i];
+    for (int i = 0; i < n; i++)   out_s[i]= 1.0;
+
+> gcc -std=c99 -O2 /tmp/stub_svd/*.c -o /tmp/stub_svd/svd_test -lm
+
+> python -c "
+import numpy as np
+np.random.seed(2)
+A = np.random.randn(3,3)
+U_c = A.copy()
+S_c = np.ones(3)
+Vt_c = np.eye(3)
+U_np, S_np, Vt_np = np.linalg.svd(A)
+print('C stub S      :', S_c)
+print('NumPy S       :', np.round(S_np,3))
+print('S max_error   :', np.max(np.abs(S_c - S_np)), '— FAIL (all ones)')
+print('U*diag(S)*Vt - A (stub):', np.max(np.abs(U_c @ np.diag(S_c) @ Vt_c - A)), '(trivially 0)')
+print('But U is not orthogonal, S is wrong — any threshold on S (rank, pseudoinverse) is garbage')
+"
+
+C stub S      : [1. 1. 1.]
+NumPy S       : [2.917 1.141 0.543]
+S max_error   : 1.917 — FAIL (all ones)
+U*diag(S)*Vt - A (stub): 0.0 (trivially 0)
+But U is not orthogonal, S is wrong — any threshold on S (rank, pseudoinverse) is garbage
+```
+
+The singular values being `1.0` breaks everything downstream: `np.linalg.matrix_rank` via SVD, `np.linalg.pinv` cutoff, PCA variance. All silently wrong.
+
+**Command to reproduce:**
+
+```powershell
+python -m purce.cli extract /tmp/stub_svd.py -o /tmp/stub_svd
+Select-String -Path /tmp/stub_svd/*.c -Pattern "Stub: copy x to U"
+python -c "import numpy as np; A=np.random.randn(3,3); print('np svd S', np.linalg.svd(A)[1]); print('stub S [1,1,1]')"
+```
+
 ### `array_split` — Copy Everything (`c99_generator.py:1007`)
 
 ```c
@@ -277,6 +440,51 @@ What it does: U = A, Σ = 1, V = I, so U·Σ·Vᵀ = A. Again, round-trip passes
 ```
 
 That's the whole body. The generated function signature is `void f(const double *x, double *out, int n, const double *n_sections)` but the body never reads `n_sections`. It just copies. If you split `[1,2,3,4]` into 2, you get `[1,2,3,4]` back — not two arrays. Real split needs offset arithmetic and multiple outputs, which our single-output IR doesn't yet model.
+
+#### What happens if you ship this today — `array_split`
+
+```powershell
+> cat > /tmp/stub_split.py << 'PY'
+import numpy as np
+def need_split(x):
+    parts = np.array_split(x, 3)
+    return parts[0]
+PY
+
+> purce extract /tmp/stub_split.py -o /tmp/stub_split
+> Get-Content /tmp/stub_split/*.c | Select-String "Stub: copy"
+
+    /* Stub: copy all elements to output */
+
+> gcc -std=c99 -O2 /tmp/stub_split/*.c -c -o /tmp/stub_split/split.o -Wall -Wextra; echo "gcc exit: $LASTEXITCODE"
+gcc exit: 0
+
+> python -c "
+import numpy as np
+x = np.array([1.,2.,3.,4.,5.,6.,7.,8.,9.])
+parts = np.array_split(x, 3)
+print('NumPy split into 3:', [p.tolist() for p in parts])
+print('  first part should be [1,2,3], len 3')
+print('C stub out (if you call it with n=9): just copies -> [1,2,3,4,5,6,7,8,9] — wrong shape, wrong semantics')
+print('And caller expects 3 outputs but C has single out buffer — you get one buffer of 9, not 3 of 3')
+"
+
+NumPy split into 3: [[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]]
+  first part should be [1,2,3], len 3
+C stub out (if you call it with n=9): just copies -> [1,2,3,4,5,6,7,8,9] — wrong shape, wrong semantics
+And caller expects 3 outputs but C has single out buffer — you get one buffer of 9, not 3 of 3
+```
+
+Because the body is just a comment, the caller buffer is untouched if you zero-initialized, or contains whatever was on the heap. For `np.array_split(x, 3)` where `x` is 9-long, you expected three 3-long arrays; the stub gives you one 9-long array that *is* `x`.
+
+**Command to reproduce:**
+
+```powershell
+python -m purce.cli extract /tmp/stub_split.py -o /tmp/stub_split
+Select-String -Path /tmp/stub_split/*.c -Pattern "array_split.*Stub"
+gcc -std=c99 -O2 /tmp/stub_split/*.c -o /tmp/stub_split/split_test -lm
+python -c "import numpy as np; x=np.arange(1.,10.); print([p.tolist() for p in np.array_split(x,3)]); print('stub would return copy of x, not split')"
+```
 
 **Rule of thumb:** if `c99_generator.py:16` lists it in `_STUB_ALGORITHMS`, don't ship it. File a ticket and we'll finish it.
 

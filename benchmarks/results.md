@@ -1,6 +1,6 @@
 # Purce Benchmark Results
 
-Generated: 2026-08-16 00:51:41
+Generated: 2026-08-23 09:14:59
 Python: 3.13.14
 
 ## Pipeline Performance
@@ -9,35 +9,35 @@ Time to process Python source through full pipeline: parse → IR → slice → 
 
 | Source | Nodes | C Files | Clean C | #error C | C Lines | Time (ms) |
 |--------|-------|---------|---------|----------|---------|-----------|
-| fixtures/ (3 files) | 5 | 5 | 4 | 1 | 112 | 6.5 |
-| realworld/ (22 files) | 1450 | 1450 | 1450 | 0 | 16620 | 1303.0 |
+| fixtures/ (3 files) | 5 | 5 | 4 | 1 | 117 | 4.1 |
+| realworld/ (22 files) | 1450 | 1450 | 1450 | 0 | 18070 | 852.2 |
 
 ### Per-File Breakdown
 
 | File | Nodes | C Files | Clean | #error | C Lines | Time (ms) |
 |------|-------|---------|-------|--------|---------|-----------|
-| activations.py | 234 | 234 | 234 | 0 | 2573 | 134.3 |
-| attention.py | 44 | 44 | 44 | 0 | 558 | 46.4 |
-| computer_vision.py | 57 | 57 | 57 | 0 | 671 | 57.1 |
-| convolution.py | 39 | 39 | 39 | 0 | 401 | 31.4 |
-| data_pipeline.py | 26 | 26 | 26 | 0 | 282 | 24.0 |
-| extra_patterns.py | 0 | 0 | 0 | 0 | 0 | 0.4 |
-| generative.py | 71 | 71 | 71 | 0 | 809 | 34.2 |
-| graph_neural_networks.py | 35 | 35 | 35 | 0 | 478 | 19.8 |
-| jax_ops.py | 85 | 85 | 85 | 0 | 964 | 58.8 |
-| layers.py | 48 | 48 | 48 | 0 | 588 | 36.2 |
-| linear_algebra.py | 36 | 36 | 36 | 0 | 478 | 34.3 |
-| losses.py | 80 | 80 | 80 | 0 | 894 | 65.1 |
-| model.py | 30 | 30 | 30 | 0 | 341 | 41.8 |
-| normalization.py | 24 | 24 | 24 | 0 | 297 | 17.8 |
-| optimizers.py | 86 | 86 | 86 | 0 | 911 | 69.7 |
-| pytorch_ops.py | 100 | 100 | 100 | 0 | 1125 | 86.9 |
-| recommendation.py | 60 | 60 | 60 | 0 | 725 | 64.7 |
-| reinforcement_learning.py | 48 | 48 | 48 | 0 | 526 | 36.0 |
-| scipy_ops.py | 24 | 24 | 24 | 0 | 239 | 32.8 |
-| signal_processing.py | 87 | 87 | 87 | 0 | 901 | 68.3 |
-| time_series.py | 38 | 38 | 38 | 0 | 513 | 23.1 |
-| transformers.py | 71 | 71 | 71 | 0 | 880 | 50.2 |
+| activations.py | 234 | 234 | 234 | 0 | 2807 | 92.6 |
+| attention.py | 44 | 44 | 44 | 0 | 602 | 27.3 |
+| computer_vision.py | 57 | 57 | 57 | 0 | 728 | 28.3 |
+| convolution.py | 39 | 39 | 39 | 0 | 440 | 22.7 |
+| data_pipeline.py | 26 | 26 | 26 | 0 | 308 | 19.5 |
+| extra_patterns.py | 0 | 0 | 0 | 0 | 0 | 0.3 |
+| generative.py | 71 | 71 | 71 | 0 | 880 | 26.5 |
+| graph_neural_networks.py | 35 | 35 | 35 | 0 | 513 | 14.9 |
+| jax_ops.py | 85 | 85 | 85 | 0 | 1049 | 33.6 |
+| layers.py | 48 | 48 | 48 | 0 | 636 | 24.0 |
+| linear_algebra.py | 36 | 36 | 36 | 0 | 514 | 26.3 |
+| losses.py | 80 | 80 | 80 | 0 | 974 | 32.4 |
+| model.py | 30 | 30 | 30 | 0 | 371 | 20.6 |
+| normalization.py | 24 | 24 | 24 | 0 | 321 | 12.4 |
+| optimizers.py | 86 | 86 | 86 | 0 | 997 | 38.5 |
+| pytorch_ops.py | 100 | 100 | 100 | 0 | 1225 | 40.7 |
+| recommendation.py | 60 | 60 | 60 | 0 | 785 | 21.3 |
+| reinforcement_learning.py | 48 | 48 | 48 | 0 | 574 | 17.7 |
+| scipy_ops.py | 24 | 24 | 24 | 0 | 263 | 24.1 |
+| signal_processing.py | 87 | 87 | 87 | 0 | 988 | 49.8 |
+| time_series.py | 38 | 38 | 38 | 0 | 551 | 18.9 |
+| transformers.py | 71 | 71 | 71 | 0 | 951 | 29.2 |
 
 ## Verification Results
 
@@ -85,9 +85,9 @@ All 25 operations passed differential fuzzing.
 - Total .c files: 1450
 - Files with #error (unsupported ops): 0
 - Clean compilable files: 1450
-- Total C lines (excluding comments): 16620
+- Total C lines (excluding comments): 18070
 - Total function definitions: 1450
-- Average lines per function: 11
+- Average lines per function: 12
 
 ## Operation Coverage
 
@@ -158,4 +158,4 @@ All 25 operations passed differential fuzzing.
 | Files with #error | 0 (0%) |
 | Z3 verified nodes | 788/1450 |
 | Fuzz operations passed | 25/25 |
-| Pipeline time (all files) | 1.0s |
+| Pipeline time (all files) | 0.6s |
