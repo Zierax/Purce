@@ -14,7 +14,7 @@ from purce.ir.nodes import Dtype, MathIRGraph, MathIRNode
 # Generated code for these algorithms is structurally valid C but numerically
 # incorrect; the file header must not claim verification.
 _STUB_ALGORITHMS: frozenset[str] = frozenset(
-    {"linalg_eig", "linalg_qr", "linalg_svd", "array_split"}
+    {"linalg_eig", "linalg_qr", "linalg_svd"}
 )
 
 

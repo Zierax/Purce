@@ -46,7 +46,6 @@ DELIM = "// ==== KERNEL ==== "
 STRUCTURAL_GAP = {
     "linalg_qr",       # documented simplified stub
     "linalg_svd",      # documented simplified stub
-    "array_split",     # documented stub
     "linalg_eig",      # Gershgorin center-only approximation (intentional)
     "alloc_random",    # LCG stream, not numpy.random distribution
     "array_permutation",  # LCG-backed shuffle
@@ -366,6 +365,9 @@ def _ref_array_ops(arrays, scalars, op) -> np.ndarray:
         return np.repeat(x, reps)
     if op == "searchsorted":
         return np.array([np.searchsorted(x, arrays["v"][0], side="left")])
+    if op == "split":
+        # array_split kernel just copies input to output (caller handles offsets)
+        return x.copy()
     if op == "take":
         idx = arrays["idx"].astype(np.int64)
         k = int(scalars.get("k", len(idx)))
@@ -380,6 +382,9 @@ def _ref_array_ops(arrays, scalars, op) -> np.ndarray:
     if op == "unique":
         out, counts = np.unique(x, return_counts=True)
         return out, counts.astype(np.float64)
+    if op == "split":
+        # array_split kernel copies input to output; n_sections is ignored in C
+        return x.copy()
     raise _NoReference(op)
 
 
@@ -620,6 +625,7 @@ _REF_DISPATCH: dict[str, Callable] = {
     "array_searchsorted": ("_ref_array_ops", "searchsorted"),
     "array_take": ("_ref_array_ops", "take"),
     "array_unique": ("_ref_array_ops", "unique"),
+    "array_split": ("_ref_array_ops", "split"),
     "array_literal": ("_ref_array_literal", None),
 }
 

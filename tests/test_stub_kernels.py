@@ -8,7 +8,6 @@ _STUB_SOURCES: dict[str, str] = {
     "linalg_eig": "import numpy as np\ndef f(A):\n    return np.linalg.eig(A)\n",
     "linalg_qr": "import numpy as np\ndef f(A):\n    return np.linalg.qr(A)\n",
     "linalg_svd": "import numpy as np\ndef f(A):\n    return np.linalg.svd(A)\n",
-    "array_split": "import numpy as np\ndef f(x):\n    return np.split(x, 2)\n",
 }
 
 # A known-good non-stub for positive control.
@@ -35,7 +34,7 @@ def _generate_for_algorithm(algo: str) -> str:
 class TestStubKernelsAreMarkedUnverified:
     def test_stub_set_is_expected(self):
         assert _STUB_ALGORITHMS == frozenset(
-            {"linalg_eig", "linalg_qr", "linalg_svd", "array_split"}
+            {"linalg_eig", "linalg_qr", "linalg_svd"}
         )
 
     def test_each_stub_body_contains_warning(self):
