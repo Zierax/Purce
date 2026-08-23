@@ -66,18 +66,16 @@ def main():
 
     # Limitations & Roadmap
     md.append("\n## LIMITATIONS (discovered)\n")
-    md.append("- `array_take` bounds uses `k` not `n` when lengths differ — documented, low risk when n==k\n")
-    md.append("- `array_sort/unique` VLA guarded at 8192 — larger n returns early (safe but silent)\n")
-    md.append("- `linalg_det` VLA guarded at 64 — larger n returns early\n")
-    md.append("- `linalg_eig/qr/svd/array_split` are stubs marked UNVERIFIED — not for production\n")
+    md.append("- `array_take` bounds uses `k` not `n` when lengths differ — documented, low risk when n==k (P0 next)\n")
+    md.append("- `array_sort/unique` and `linalg_det` now use heap (`malloc/free`) — large n handled, no silent return (fixed)\n")
+    md.append("- `linalg_eig/qr/svd/array_split` are stubs marked UNVERIFIED — not for production (P0 next)\n")
+    md.append("- `from numpy import dot` and `import as la` now resolved via alias map (fixed)\n")
     md.append("- Determinism: raw bytes differ due to timestamps, but normalized content hash is stable\n")
     md.append("- Chaos corpus: 10% invalid programs correctly rejected by parser (eval/open)\n")
 
     md.append("\n## ROADMAP TODO\n")
     md.append("- P0: Implement real `eig` (QR iteration), `qr` (Gram-Schmidt), `svd` (Jacobi/Golub) and remove stub flag\n")
     md.append("- P0: Add per-input length tracking for `array_take` to check `idx < n` correctly\n")
-    md.append("- P1: Support `from numpy import dot` and `import numpy.linalg as la` alias resolution\n")
-    md.append("- P1: VLA fallback to malloc for large n (sort/det) with heap contract update\n")
     md.append("- P1: Promote chaos corpus to CI nightly with 500 programs\n")
     md.append("- P2: Extract `c99_generator.py` God Object into `registry/` + `kernels/` + `emitter/`\n")
     md.append("- P2: Unify verifier duplication (`_all_close`, `compile`, reference oracles) into `_common`\n")

@@ -96,19 +96,19 @@ def run_adversarial(repo_root: Path) -> dict:
     # VLA provocation: n=100000 for sort should be rejected (guard return)
     from purce.ir.nodes import MathIRNode, MathIRGraph, Dtype, Effect
     from purce.backend.c99_generator import C99Generator
-    # Test 1: array_sort with n=100000 should contain guard and not VLA overflow
+    # Test 1: array_sort with n=100000 should use heap (malloc) not VLA overflow
     node = MathIRNode(
         node_id="adv_sort", origin_symbol="adv.sort", origin_file="adv.py", origin_line=1,
         origin_commit=None, origin_signature="x array", math_intent="adv", inputs=[("x", Dtype.FLOAT64, "array"), ("n", Dtype.INT64, "scalar")], outputs=[("out", Dtype.FLOAT64, "array")], effects=[Effect.PURE], algorithm="array_sort", stack_usage=0
     )
     g = MathIRGraph(); g.add_node(node)
     content = _get_c_content(C99Generator().generate(g, module_name="adv"))
-    checks["array_sort_has_guard"] = "n > 8192" in content
-    # Test 2: linalg_det guard
+    checks["array_sort_has_guard"] = "malloc" in content and "free(tmp)" in content
+    # Test 2: linalg_det now uses heap (malloc) for large n
     node2 = MathIRNode(node_id="adv_det", origin_symbol="adv.det", origin_file="adv.py", origin_line=1, origin_commit=None, origin_signature="x", math_intent="adv", inputs=[("x", Dtype.FLOAT64, "array"), ("n", Dtype.INT64, "scalar")], outputs=[("result", Dtype.FLOAT64, "array")], effects=[Effect.PURE], algorithm="linalg_det", stack_usage=0)
     g2 = MathIRGraph(); g2.add_node(node2)
     content2 = _get_c_content(C99Generator().generate(g2, module_name="adv"))
-    checks["linalg_det_has_guard"] = "n > 64" in content2
+    checks["linalg_det_has_guard"] = "malloc" in content2 and "free(lu)" in content2
     # Test 3: stub header is unverified
     node3 = MathIRNode(node_id="adv_eig", origin_symbol="adv.eig", origin_file="adv.py", origin_line=1, origin_commit=None, origin_signature="x", math_intent="adv", inputs=[("A", Dtype.FLOAT64, "array"), ("n", Dtype.INT64, "scalar")], outputs=[("eigenvalues", Dtype.FLOAT64, "array")], effects=[Effect.PURE], algorithm="linalg_eig", stack_usage=0)
     g3 = MathIRGraph(); g3.add_node(node3)
