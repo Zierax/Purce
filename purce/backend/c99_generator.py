@@ -105,7 +105,7 @@ BODY_PARAM_MAP: dict[str, list[tuple[str, str]]] = {
     "matrix_tril": [("x", "input_0"), ("out", "output_0"), ("n", "dim")],
     "matrix_triu": [("x", "input_0"), ("out", "output_0"), ("n", "dim")],
     "array_concat": [("A", "input_0"), ("B", "input_1"), ("C", "output_0"), ("n_a", "dim_m"), ("n_b", "dim_n")],
-    "array_take": [("x", "input_0"), ("idx", "input_1"), ("out", "output_0"), ("k", "length")],
+    "array_take": [("x", "input_0"), ("idx", "input_1"), ("out", "output_0"), ("n", "input_0_len"), ("k", "input_1_len")],
     "array_argsort": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
     "array_permutation": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
     "array_literal": [("out", "output_0"), ("x", "input_0"), ("n", "length")],
@@ -764,7 +764,7 @@ MATH_KERNEL_BODIES: dict[str, str] = {
     /* Gather: out[i] = x[idx[i]] */
     for (int i = 0; i < k; i++) {
         int idx_val = (int)idx[i];
-        out[i] = (idx_val >= 0 && idx_val < k) ? x[idx_val] : 0.0;
+        out[i] = (idx_val >= 0 && idx_val < n) ? x[idx_val] : 0.0;
     }""",
     "array_argsort": """\
     /* Argsort (insertion sort for small arrays): out[i] = sorted index of x */
@@ -1056,6 +1056,7 @@ def _build_body_param_mapping(node: MathIRNode) -> dict[str, str]:
     for canonical, source in mapping_spec:
         if source.startswith("input_") and source.endswith("_len"):
             # e.g. input_0_len → length of input_0, mapped to canonical (n/k)
+            # Do not add to input_idx_canon; handled as derived scalar
             mapping[canonical] = canonical
         elif source.startswith("input_"):
             idx = int(source.split("_")[1])
@@ -1192,7 +1193,7 @@ DERIVED_PARAMS: dict[str, list[str]] = {
     "matrix_tril": ["n"],
     "matrix_triu": ["n"],
     "array_concat": ["n_a", "n_b"],
-    "array_take": ["k"],
+    "array_take": ["n", "k"],
     "array_argsort": ["n"],
     "array_permutation": ["n"],
     "array_literal": ["n"],
@@ -1584,13 +1585,13 @@ class C99Generator:
         input_idx_canon: dict[int, str] = {}
         output_idx_canon: dict[int, str] = {}
         for canonical, source in mapping_spec:
-            if source.startswith("input_"):
+            if source.startswith("input_") and not source.endswith("_len"):
                 input_idx_canon[int(source.split("_")[1])] = canonical
             elif source.startswith("output_"):
                 output_idx_canon[int(source.split("_")[1])] = canonical
         operand_names = set()
         for canonical, source in mapping_spec:
-            if source.startswith(("input_", "output_")):
+            if source.startswith(("input_", "output_")) and not source.endswith("_len"):
                 operand_names.add(mapping.get(canonical))
         out_names = set()
         for name, dtype, shape in node.outputs:

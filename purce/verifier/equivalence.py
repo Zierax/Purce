@@ -368,9 +368,14 @@ def _ref_array_ops(arrays, scalars, op) -> np.ndarray:
         return np.array([np.searchsorted(x, arrays["v"][0], side="left")])
     if op == "take":
         idx = arrays["idx"].astype(np.int64)
-        out = np.zeros_like(x)
-        valid = (idx >= 0) & (idx < int(scalars["k"]))
-        out[valid] = x[idx[valid]]
+        k = int(scalars.get("k", len(idx)))
+        out = np.zeros(k, dtype=np.float64)
+        # Use n for bounds if available, else k
+        bound = int(scalars.get("n", k))
+        valid = (idx >= 0) & (idx < bound)
+        # x may be under "x" or "a"
+        x_arr = arrays.get("x", arrays.get("a", np.array([])))
+        out[valid] = x_arr[idx[valid]]
         return out
     if op == "unique":
         out, counts = np.unique(x, return_counts=True)
@@ -762,7 +767,19 @@ def _make_case_from_node(algo: str, node: MathIRNode, rng: random.Random) -> dic
     # shape as an array input), the C signature takes an int length, so the
     # canonical slot must hold the accumulated width, not the array.
     for canonical, source in spec:
-        if source in ("length", "log_length", "dim", "dim_m", "dim_n", "dim_k"):
+        if source.startswith("input_") and source.endswith("_len"):
+            idx = int(source.split("_")[1])
+            # Find the canonical for that input index
+            input_canonical = None
+            for c2, s2 in spec:
+                if s2 == f"input_{idx}":
+                    input_canonical = c2
+                    break
+            if input_canonical and input_canonical in case and isinstance(case[input_canonical], np.ndarray):
+                case[canonical] = float(len(case[input_canonical]))
+            else:
+                case[canonical] = float(length)
+        elif source in ("length", "log_length", "dim", "dim_m", "dim_n", "dim_k"):
             if isinstance(case.get(canonical), np.ndarray):
                 case[canonical] = float(length)
             else:
@@ -871,10 +888,12 @@ def _make_case(algo: str, node: MathIRNode, rng: random.Random) -> dict[str, Any
         return {"A": _uni(rng, -100, 100, n_a), "B": _uni(rng, -100, 100, n_b),
                 "n_a": n_a, "n_b": n_b}
     if algo == "array_take":
+        n = _rand_small(rng, 1, 32)
         k = _rand_small(rng, 1, 32)
-        idx = np.asarray([rng.randint(0, k - 1) if k > 1 else 0 for _ in range(k)],
+        x = _uni(rng, -100, 100, n)
+        idx = np.asarray([rng.randint(0, n - 1) if n > 1 else 0 for _ in range(k)],
                          dtype=np.float64)
-        return {"x": _uni(rng, -100, 100, k), "idx": idx, "k": k}
+        return {"x": x, "idx": idx, "n": n, "k": k}
     if algo in ("array_sort", "array_argsort", "array_permutation", "array_flip",
                 "array_reshape", "array_squeeze", "array_expand_dims",
                 "array_flatten"):
