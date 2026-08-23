@@ -1395,7 +1395,7 @@ class C99Generator:
                 'continue', 'break', 'do',
             }
             _mapped_names = set(mapping.values())
-            _loop_vars = {'i', 'j', 'k', 't', 'u', 'bit', 'mask', 'col', 'row', 'half', 'size', 'factor', 'max_row', 'min_val', 'max_val', 'sum', 'a_ik', 'pivot', 'center', 'radius', 'angle', 'cur_w_re', 'cur_w_im', 'new_w_re', 'new_w_im', 'tmp_re', 'tmp_im', 'u_idx', 't_idx', 'aug', 'denom', 'val', 'cond', 'a_val', 'b_val', 's', 'out', 'eigenvalues', 'L', 'idx_val', 'v', 'state', 'key', 'key_idx', 'tmp', 'a_max', 'a_min', 'norm_sum', 'var_mean', 'var_sum', 'd', 'n_out', 'n_a', 'n_b', 'spec', 'h', 'per_iter', 'n_iters', 'all_val', 'any_val', 'prod', 'cum', 'count', 'det', 'lu', 'min_idx', 'max_idx', 'r', 'idx', 'g', 't_re', 't_im', 'w_re', 'w_im', 'purce_rng_state', 'dot', 'norm'}
+            _loop_vars = {'i', 'j', 'k', 'kk', 't', 'u', 'bit', 'mask', 'col', 'row', 'half', 'size', 'factor', 'max_row', 'min_val', 'max_val', 'sum', 'a_ik', 'pivot', 'center', 'radius', 'angle', 'cur_w_re', 'cur_w_im', 'new_w_re', 'new_w_im', 'tmp_re', 'tmp_im', 'u_idx', 't_idx', 'aug', 'denom', 'val', 'cond', 'a_val', 'b_val', 's', 'out', 'eigenvalues', 'L', 'idx_val', 'v', 'state', 'key', 'key_idx', 'tmp', 'a_max', 'a_min', 'norm_sum', 'var_mean', 'var_sum', 'd', 'n_out', 'n_a', 'n_b', 'spec', 'h', 'per_iter', 'n_iters', 'all_val', 'any_val', 'prod', 'cum', 'count', 'det', 'lu', 'min_idx', 'max_idx', 'r', 'idx', 'g', 't_re', 't_im', 'w_re', 'w_im', 'purce_rng_state', 'dot', 'norm'}
             _canon_valid = set(mapping.keys())
             _const_names = set(scalar_constants.keys())
             _unresolved = _body_ids - _c_builtins - _mapped_names - _canon_valid - _loop_vars - _const_names
