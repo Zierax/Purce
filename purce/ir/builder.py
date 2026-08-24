@@ -641,6 +641,15 @@ class MathIRBuilder:
             ))
 
         algorithm = algorithms[0] if algorithms else "composite"
+        # Multi-output kernels (qr/svd/eig) return tuples — expand outputs
+        if algorithm in ("linalg_qr", "linalg_svd"):
+            # q, r = qr(A)  or  u, s, vh = svd(A)  — two/three outputs
+            if algorithm == "linalg_qr":
+                outputs = [("out_q", Dtype.FLOAT64, "array"), ("out_r", Dtype.FLOAT64, "array")]
+            elif algorithm == "linalg_svd":
+                outputs = [("out_u", Dtype.FLOAT64, "array"), ("out_s", Dtype.FLOAT64, "array"), ("out_v", Dtype.FLOAT64, "array")]
+        elif algorithm == "linalg_eig":
+            outputs = [("eigenvalues", Dtype.FLOAT64, "array")]
         sig_parts = []
         for name, dt, _ in inputs:
             sig_parts.append(f"{dt.name.lower()} {name}")
@@ -2083,6 +2092,65 @@ class MathIRBuilder:
                 continue
 
             if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1:
+                # Handle tuple unpacking for multi-output kernels: q, r = np.linalg.qr(A)
+                if isinstance(stmt.targets[0], ast.Tuple) and isinstance(stmt.value, ast.Call):
+                    target = _get_qualified_name(stmt.value.func)
+                    if target.startswith("np."):
+                        target = "numpy." + target[3:]
+                    if target in NUMPY_OP_MAP:
+                        algo = NUMPY_OP_MAP[target]
+                        # Only handle known multi-output algos
+                        if algo in ("linalg_qr", "linalg_svd", "linalg_eig"):
+                            call_inputs = []
+                            for arg in stmt.value.args:
+                                if isinstance(arg, ast.Name) and arg.id in symbol_table:
+                                    nm, dt = symbol_table[arg.id]
+                                    for fi in func_inputs:
+                                        if fi[0] == nm:
+                                            call_inputs.append((nm, dt, fi[2]))
+                                            break
+                                    else:
+                                        call_inputs.append((nm, dt, "array"))
+                                elif isinstance(arg, ast.Name):
+                                    call_inputs.append((arg.id, Dtype.FLOAT64, "array"))
+                            # Outputs are the tuple elements
+                            # For linalg_eig, Python returns (w, v) but Purce's kernel only models eigenvalues (w)
+                            # So for eig with 2 targets, keep only the first (w)
+                            elts = stmt.targets[0].elts
+                            if algo == "linalg_eig" and len(elts) == 2:
+                                elts = [elts[0]]
+                            node_outputs = []
+                            for elt in elts:
+                                if isinstance(elt, ast.Name):
+                                    out_name = elt.id
+                                    # Register in symbol table as array
+                                    symbol_table[out_name] = (out_name, Dtype.FLOAT64)
+                                    node_outputs.append((out_name, Dtype.FLOAT64, "array"))
+                                    existing_names.add(out_name)
+                            if node_outputs:
+                                self._node_counter += 1
+                                node_id = _make_node_id(module_name, f"{func.name}_qr_{self._node_counter}")
+                                self.graph.add_node(MathIRNode(
+                                    node_id=node_id,
+                                    origin_symbol=f"{module_name}.{func.name}",
+                                    origin_file=origin_file,
+                                    origin_line=stmt.lineno,
+                                    origin_commit=self.origin_commit,
+                                    origin_signature=f"{', '.join([f'{dt.name.lower()} {n}' for n,dt,_ in call_inputs])} -> {', '.join([o[0] for o in node_outputs])}",
+                                    math_intent=f"Multi-output {algo}",
+                                    inputs=call_inputs,
+                                    outputs=node_outputs,
+                                    effects=[Effect.PURE],
+                                    algorithm=algo,
+                                    reductions=[ReductionEntry(rule="numpy_op_extraction", description=f"Extracted {target} as {algo}", original=target)],
+                                    nested_deps=list(all_dep_ids),
+                                    stack_usage=256, heap_usage=None, reentrant=True,
+                                    dep_kind=DepKind.MATH_KERNEL,
+                                    scalar_constants=dict(scalar_constants),
+                                ))
+                                self.graph.entry_points.append(node_id)
+                                all_dep_ids.append(node_id)
+                            continue
                 target_name = stmt.targets[0].id if isinstance(stmt.targets[0], ast.Name) else None
                 if target_name is None:
                     continue
