@@ -650,7 +650,10 @@ class DifferentialFuzzer:
 
     @staticmethod
     def _linalg_eig_python(A, b, n):
-        return [A[i][i] for i in range(n)]
+        import numpy as np
+        Asym = [[0.5 * (A[i][j] + A[j][i]) for j in range(n)] for i in range(n)]
+        w = np.linalg.eigvalsh(Asym)
+        return sorted(w.tolist())
 
     @staticmethod
     def _fft_python(real, imag, n):

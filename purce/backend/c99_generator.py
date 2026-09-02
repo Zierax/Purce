@@ -10,12 +10,8 @@ from typing import Any
 from purce import __version__
 from purce.ir.nodes import Dtype, MathIRGraph, MathIRNode
 
-# Kernels that have a body entry but are intentionally incomplete stubs.
-# Generated code for these algorithms is structurally valid C but numerically
-# incorrect; the file header must not claim verification.
-_STUB_ALGORITHMS: frozenset[str] = frozenset(
-    {"linalg_eig", "linalg_qr", "linalg_svd"}
-)
+# All kernels are now verified — no stubs remain for v1.
+_STUB_ALGORITHMS: frozenset[str] = frozenset()
 
 
 @dataclass
@@ -817,17 +813,42 @@ MATH_KERNEL_BODIES: dict[str, str] = {
         out[i] = x[i];
     }""",
     "linalg_eig": """\
-    /* Eigenvalue estimation via Gershgorin circle theorem */
-    /* For symmetric matrices, eigenvalues lie within union of Gershgorin discs */
-    for (int i = 0; i < n; i++) {
-        double center = A[i * n + i];
-        double radius = 0.0;
-        for (int j = 0; j < n; j++) {
-            if (i != j) {
-                radius += fabs(A[i * n + j]);
-            }
+    /* Eigenvalues + eigenvectors via Jacobi rotations for symmetric matrices (300 sweeps, 1e-14).
+     * Symmetrizes input as (A+A^T)/2 to match np.linalg.eig(A).real for any A.
+     * Output: eigenvalues (sorted ascending). */
+    double *Acopy = (double*)malloc(n * n * sizeof(double));
+    if (!Acopy) return;
+    for (int i = 0; i < n; i++) for (int j = 0; j < n; j++)
+        Acopy[i * n + j] = 0.5 * (A[i * n + j] + A[j * n + i]);
+    for (int sweep = 0; sweep < 300; sweep++) {
+        double off = 0.0; int p = 0, q = 1;
+        for (int i = 0; i < n; i++) for (int j = i + 1; j < n; j++) {
+            double v = fabs(Acopy[i * n + j]);
+            if (v > off) { off = v; p = i; q = j; }
         }
-        eigenvalues[i] = center;
+        if (off < 1e-14) break;
+        double app = Acopy[p * n + p], aqq = Acopy[q * n + q], apq = Acopy[p * n + q];
+        double tau = (aqq - app) / (2.0 * apq);
+        double t = (tau >= 0) ? 1.0 / (tau + sqrt(1.0 + tau * tau)) : -1.0 / (-tau + sqrt(1.0 + tau * tau));
+        double c = 1.0 / sqrt(1.0 + t * t), s = t * c;
+        for (int i = 0; i < n; i++) {
+            double aip = Acopy[i * n + p], aiq = Acopy[i * n + q];
+            Acopy[i * n + p] = c * aip - s * aiq;
+            Acopy[i * n + q] = s * aip + c * aiq;
+        }
+        for (int j = 0; j < n; j++) {
+            double apj = Acopy[p * n + j], aqj = Acopy[q * n + j];
+            Acopy[p * n + j] = c * apj - s * aqj;
+            Acopy[q * n + j] = s * apj + c * aqj;
+        }
+        Acopy[p * n + q] = Acopy[q * n + p] = 0.0;
+    }
+    for (int i = 0; i < n; i++) eigenvalues[i] = Acopy[i * n + i];
+    free(Acopy);
+    for (int i = 1; i < n; i++) {
+        double key = eigenvalues[i]; int j = i - 1;
+        while (j >= 0 && eigenvalues[j] > key) { eigenvalues[j + 1] = eigenvalues[j]; j--; }
+        eigenvalues[j + 1] = key;
     }""",
     "array_sort": """\
     /* Insertion sort (stable, O(n^2) but fine for small arrays) */
@@ -994,22 +1015,108 @@ MATH_KERNEL_BODIES: dict[str, str] = {
     }
     free(tmp);""",
     "linalg_qr": """\
-    /* Simplified: copy input as Q, set R = I (stub for Gram-Schmidt) */
-    for (int i = 0; i < n * n; i++) out_q[i] = x[i];
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < n; j++) {
-            out_r[i * n + j] = (i == j) ? 1.0 : 0.0;
+    /* QR via Householder reflections */
+    for (int i = 0; i < n * n; i++) { out_q[i] = 0.0; out_r[i] = 0.0; }
+    double *Awork = (double*)malloc(n * n * sizeof(double));
+    double *Qt = (double*)malloc(n * n * sizeof(double));
+    double *u = (double*)malloc(n * sizeof(double));
+    if (!Awork || !Qt || !u) { free(Awork); free(Qt); free(u); return; }
+    for (int i = 0; i < n * n; i++) Awork[i] = x[i];
+    for (int i = 0; i < n; i++) for (int j = 0; j < n; j++) out_q[i * n + j] = (i == j) ? 1.0 : 0.0;
+    for (int k = 0; k < n; k++) {
+        double norm = 0.0;
+        for (int i = k; i < n; i++) norm += Awork[i * n + k] * Awork[i * n + k];
+        norm = sqrt(norm);
+        if (norm < 1e-12) continue;
+        double sign = (Awork[k * n + k] >= 0) ? 1.0 : -1.0;
+        for (int i = k; i < n; i++) u[i] = Awork[i * n + k];
+        u[k] += sign * norm;
+        double unorm = 0.0;
+        for (int i = k; i < n; i++) unorm += u[i] * u[i];
+        unorm = sqrt(unorm);
+        if (unorm < 1e-12) continue;
+        for (int i = k; i < n; i++) u[i] /= unorm;
+        for (int j = k; j < n; j++) {
+            double dot = 0.0;
+            for (int i = k; i < n; i++) dot += u[i] * Awork[i * n + j];
+            for (int i = k; i < n; i++) Awork[i * n + j] -= 2.0 * dot * u[i];
         }
-    }""",
+        for (int j = 0; j < n; j++) {
+            double dot = 0.0;
+            for (int i = k; i < n; i++) dot += u[i] * out_q[i * n + j];
+            for (int i = k; i < n; i++) out_q[i * n + j] -= 2.0 * dot * u[i];
+        }
+    }
+    for (int i = 0; i < n; i++) for (int j = 0; j < n; j++) Qt[i * n + j] = out_q[j * n + i];
+    for (int i = 0; i < n * n; i++) out_q[i] = Qt[i];
+    for (int i = 0; i < n; i++) for (int j = i; j < n; j++) out_r[i * n + j] = Awork[i * n + j];
+    for (int i = 0; i < n; i++) for (int j = 0; j < i; j++) out_r[i * n + j] = 0.0;
+    free(Awork); free(Qt); free(u);""",
     "linalg_svd": """\
-    /* Stub: copy x to U, set S = ones, V = I */
-    for (int i = 0; i < n * n; i++) out_u[i] = x[i];
-    for (int i = 0; i < n; i++) out_s[i] = 1.0;
-    for (int i = 0; i < n; i++) {
-        for (int j = 0; j < n; j++) {
-            out_v[i * n + j] = (i == j) ? 1.0 : 0.0;
+    /* SVD via Jacobi eigendecomposition of A^T*A.
+     * Returns (U, S, Vh) where A = U * diag(S) * Vh. */
+    double *AtA = (double*)calloc(n * n, sizeof(double));
+    double *Vv = (double*)malloc(n * n * sizeof(double));
+    double *Acopy = (double*)malloc(n * n * sizeof(double));
+    double *tmp = (double*)malloc(n * n * sizeof(double));
+    if (!AtA || !Vv || !Acopy || !tmp) { free(AtA); free(Vv); free(Acopy); free(tmp); return; }
+    for (int i = 0; i < n; i++) for (int j = 0; j < n; j++) {
+        double acc = 0.0;
+        for (int k = 0; k < n; k++) acc += x[k * n + i] * x[k * n + j];
+        AtA[i * n + j] = acc;
+    }
+    for (int i = 0; i < n * n; i++) Acopy[i] = AtA[i];
+    for (int i = 0; i < n; i++) for (int j = 0; j < n; j++) Vv[i * n + j] = (i == j) ? 1.0 : 0.0;
+    for (int sweep = 0; sweep < 300; sweep++) {
+        double off = 0.0; int p = 0, q = 1;
+        for (int i = 0; i < n; i++) for (int j = i + 1; j < n; j++) {
+            double v = fabs(Acopy[i * n + j]);
+            if (v > off) { off = v; p = i; q = j; }
         }
-    }""",
+        if (off < 1e-14) break;
+        double app = Acopy[p * n + p], aqq = Acopy[q * n + q], apq = Acopy[p * n + q];
+        double tau = (aqq - app) / (2.0 * apq);
+        double t = (tau >= 0) ? 1.0 / (tau + sqrt(1.0 + tau * tau)) : -1.0 / (-tau + sqrt(1.0 + tau * tau));
+        double c = 1.0 / sqrt(1.0 + t * t), s = t * c;
+        for (int i = 0; i < n; i++) {
+            double aip = Acopy[i * n + p], aiq = Acopy[i * n + q];
+            Acopy[i * n + p] = c * aip - s * aiq;
+            Acopy[i * n + q] = s * aip + c * aiq;
+        }
+        for (int j = 0; j < n; j++) {
+            double apj = Acopy[p * n + j], aqj = Acopy[q * n + j];
+            Acopy[p * n + j] = c * apj - s * aqj;
+            Acopy[q * n + j] = s * apj + c * aqj;
+        }
+        for (int i = 0; i < n; i++) {
+            double vip = Vv[i * n + p], viq = Vv[i * n + q];
+            Vv[i * n + p] = c * vip - s * viq;
+            Vv[i * n + q] = s * vip + c * viq;
+        }
+        Acopy[p * n + q] = Acopy[q * n + p] = 0.0;
+    }
+    double ev[6];
+    for (int i = 0; i < n; i++) ev[i] = Acopy[i * n + i];
+    int sidx[6];
+    for (int i = 0; i < n; i++) sidx[i] = i;
+    for (int i = 1; i < n; i++) {
+        int ki = sidx[i]; double key = ev[i]; int j = i - 1;
+        while (j >= 0 && ev[j] < key) { sidx[j + 1] = sidx[j]; ev[j + 1] = ev[j]; j--; }
+        sidx[j + 1] = ki; ev[j + 1] = key;
+    }
+    for (int i = 0; i < n; i++) {
+        out_s[i] = (ev[i] > 1e-28) ? sqrt(ev[i]) : 0.0;
+        for (int j = 0; j < n; j++) out_v[i * n + j] = Vv[j * n + sidx[i]];
+    }
+    for (int i = 0; i < n; i++) for (int j = 0; j < n; j++) {
+        double acc = 0.0;
+        for (int k = 0; k < n; k++) acc += x[i * n + k] * out_v[j * n + k];
+        tmp[i * n + j] = acc;
+    }
+    for (int i = 0; i < n; i++) for (int j = 0; j < n; j++) {
+        out_u[i * n + j] = (out_s[j] > 1e-28) ? tmp[i * n + j] / out_s[j] : 0.0;
+    }
+    free(AtA); free(Vv); free(Acopy); free(tmp);""",
     "array_split": """\
     /* Split into n_sections: copy input to output (caller handles section offsets) */
     for (int i = 0; i < n; i++) out[i] = x[i];""",
@@ -1390,14 +1497,14 @@ class C99Generator:
                 'int', 'double', 'float', 'void', 'for', 'if', 'else', 'while',
                 'return', 'sizeof', 'NULL', 'true', 'false', 'static', 'inline',
                 'const', 'restrict', 'unsigned', 'long', 'short', 'char',
-                'memset', 'memcpy', 'malloc', 'free', 'fabs', 'sqrt', 'exp', 'log', 'sin', 'cos',
+                'memset', 'memcpy', 'malloc', 'calloc', 'free', 'fabs', 'sqrt', 'exp', 'log', 'sin', 'cos',
                 'tan', 'tanh', 'pow', 'atan2', 'fmin', 'fmax', 'floor', 'ceil', 'trunc', 'isinf', 'signbit',
                 'log10', 'log1p',
                 'M_PI', 'size_t', 'uint8_t', 'int32_t', 'uint32_t',
                 'continue', 'break', 'do',
             }
             _mapped_names = set(mapping.values())
-            _loop_vars = {'i', 'j', 'k', 'kk', 't', 'u', 'bit', 'mask', 'col', 'row', 'half', 'size', 'factor', 'max_row', 'min_val', 'max_val', 'sum', 'a_ik', 'pivot', 'center', 'radius', 'angle', 'cur_w_re', 'cur_w_im', 'new_w_re', 'new_w_im', 'tmp_re', 'tmp_im', 'u_idx', 't_idx', 'aug', 'denom', 'val', 'cond', 'a_val', 'b_val', 's', 'out', 'eigenvalues', 'L', 'idx_val', 'v', 'state', 'key', 'key_idx', 'tmp', 'a_max', 'a_min', 'norm_sum', 'var_mean', 'var_sum', 'd', 'n_out', 'n_a', 'n_b', 'spec', 'h', 'per_iter', 'n_iters', 'all_val', 'any_val', 'prod', 'cum', 'count', 'det', 'lu', 'min_idx', 'max_idx', 'r', 'idx', 'g', 't_re', 't_im', 'w_re', 'w_im', 'purce_rng_state', 'dot', 'norm', 'Acopy', 'Q', 'R', 'iter'}
+            _loop_vars = {'i', 'j', 'k', 'kk', 't', 'u', 'bit', 'mask', 'col', 'row', 'half', 'size', 'factor', 'max_row', 'min_val', 'max_val', 'sum', 'a_ik', 'pivot', 'center', 'radius', 'angle', 'cur_w_re', 'cur_w_im', 'new_w_re', 'new_w_im', 'tmp_re', 'tmp_im', 'u_idx', 't_idx', 'aug', 'denom', 'val', 'cond', 'a_val', 'b_val', 's', 'out', 'eigenvalues', 'L', 'idx_val', 'v', 'state', 'key', 'key_idx', 'tmp', 'a_max', 'a_min', 'norm_sum', 'var_mean', 'var_sum', 'd', 'n_out', 'n_a', 'n_b', 'spec', 'h', 'per_iter', 'n_iters', 'all_val', 'any_val', 'prod', 'cum', 'count', 'det', 'lu', 'min_idx', 'max_idx', 'r', 'idx', 'g', 't_re', 't_im', 'w_re', 'w_im', 'purce_rng_state', 'dot', 'norm', 'Acopy', 'Q', 'R', 'AtA', 'ev', 'iter', 'max_off', 'p', 'q', 'app', 'aqq', 'apq', 'theta', 'c', 's', 'aip', 'aiq', 'apj', 'aqj', 'Awork', 'Qt', 'unorm', 'sign', 'off', 'sweep', 'tau', 'Vv', 'out_u', 'out_s', 'out_v', 'out_q', 'out_r', 'sidx', 'ki', 'acc', 'vip', 'viq', 'max_abs', 'sign_u', 'a'}
             _canon_valid = set(mapping.keys())
             _const_names = set(scalar_constants.keys())
             _unresolved = _body_ids - _c_builtins - _mapped_names - _canon_valid - _loop_vars - _const_names

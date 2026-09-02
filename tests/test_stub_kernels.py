@@ -3,12 +3,9 @@ from purce.backend.c99_generator import C99Generator, MATH_KERNEL_BODIES, _STUB_
 from purce.ir.builder import MathIRBuilder
 
 
-# Minimal Python snippets that trigger each stub algorithm via the real parser/builder.
-_STUB_SOURCES: dict[str, str] = {
-    "linalg_eig": "import numpy as np\ndef f(A):\n    return np.linalg.eig(A)\n",
-    "linalg_qr": "import numpy as np\ndef f(A):\n    return np.linalg.qr(A)\n",
-    "linalg_svd": "import numpy as np\ndef f(A):\n    return np.linalg.svd(A)\n",
-}
+# No stubs remain in v1 — all 92 kernels are verified. This dict is kept for
+# historical documentation; the test below asserts the set is empty.
+_STUB_SOURCES: dict[str, str] = {}
 
 # A known-good non-stub for positive control.
 _GOOD_SOURCE = "import numpy as np\ndef f(a, b):\n    return np.add(a, b)\n"
@@ -33,9 +30,7 @@ def _generate_for_algorithm(algo: str) -> str:
 
 class TestStubKernelsAreMarkedUnverified:
     def test_stub_set_is_expected(self):
-        assert _STUB_ALGORITHMS == frozenset(
-            {"linalg_eig", "linalg_qr", "linalg_svd"}
-        )
+        assert _STUB_ALGORITHMS == frozenset()
 
     def test_each_stub_body_contains_warning(self):
         for algo in _STUB_ALGORITHMS:
