@@ -31,3 +31,4 @@ debug_*.py
 test_three.py
 fix_*.py
 add_*.py
+paper/
