@@ -46,8 +46,7 @@ class TestComposedFunctionArgs:
 
     def test_non_list_arg_that_resolves_to_list_extends_inputs(self) -> None:
         _, graph = _build(
-            "def f(a, b, c, d):\n"
-            "    return np.divide(np.add(a, b), ([c, np.add(b, c)] | d))\n"
+            "def f(a, b, c, d):\n    return np.divide(np.add(a, b), ([c, np.add(b, c)] | d))\n"
         )
         div = next(n for n in graph.nodes.values() if n.algorithm == "element_div")
         assert len(div.inputs) >= 3
@@ -88,44 +87,36 @@ class TestDecomposeExpr:
             {},
             set(),
             {},
-            "mod", "f", "file", [], [0],
+            "mod",
+            "f",
+            "file",
+            [],
+            [0],
         )
         assert result == ("inter0", Dtype.FLOAT64, "array")
 
     def test_name_builtin_type_becomes_zero_const(self) -> None:
         _, graph = _build(
-            "def f(a, b):\n"
-            "    s = np.add(a, float)\n"
-            "    t = np.multiply(s, b)\n"
-            "    return t\n"
+            "def f(a, b):\n    s = np.add(a, float)\n    t = np.multiply(s, b)\n    return t\n"
         )
         add = next(n for n in graph.nodes.values() if n.algorithm == "element_add")
         assert add.inputs[1][2] == "scalar"
 
     def test_list_containing_list_extends(self) -> None:
         _, graph = _build(
-            "def f(a, b, c, d):\n"
-            "    s = np.concatenate([[a, b], [c, d]])\n"
-            "    return s\n"
+            "def f(a, b, c, d):\n    s = np.concatenate([[a, b], [c, d]])\n    return s\n"
         )
         concat = next(n for n in graph.nodes.values() if n.algorithm == "array_concat")
         assert len(concat.inputs) == 4
 
     def test_np_prefixed_call_target_normalized(self) -> None:
         _, graph = _build(
-            "def f(a, b):\n"
-            "    s = np.add(a, b)\n"
-            "    t = np.multiply(s, b)\n"
-            "    return t\n"
+            "def f(a, b):\n    s = np.add(a, b)\n    t = np.multiply(s, b)\n    return t\n"
         )
         assert "element_add" in _algos(graph)
 
     def test_call_with_list_arg_extends(self) -> None:
-        _, graph = _build(
-            "def f(a, b, c):\n"
-            "    s = np.concatenate([[a, b], [c]])\n"
-            "    return s\n"
-        )
+        _, graph = _build("def f(a, b, c):\n    s = np.concatenate([[a, b], [c]])\n    return s\n")
         concat = next(n for n in graph.nodes.values() if n.algorithm == "array_concat")
         assert len(concat.inputs) == 3
 
@@ -141,10 +132,7 @@ class TestDecomposeExpr:
 
     def test_transpose_arg_uses_input_shape(self) -> None:
         _, graph = _build(
-            "def f(a: float, b):\n"
-            "    s = np.multiply(a.T, b)\n"
-            "    t = np.add(s, b)\n"
-            "    return t\n"
+            "def f(a: float, b):\n    s = np.multiply(a.T, b)\n    t = np.add(s, b)\n    return t\n"
         )
         mul = next(n for n in graph.nodes.values() if n.algorithm == "element_mul")
         assert mul.inputs[0] == ("a", Dtype.FLOAT64, "scalar")
@@ -190,26 +178,24 @@ class TestDecomposeExpr:
             {},
             set(),
             {},
-            "mod", "f", "file", [], [0],
+            "mod",
+            "f",
+            "file",
+            [],
+            [0],
         )
         assert result[0].startswith("_inter_expr_")
 
     def test_np_e_attribute(self) -> None:
         _, graph = _build(
-            "def f(a, b):\n"
-            "    s = np.multiply(np.e, b)\n"
-            "    t = np.add(s, a)\n"
-            "    return t\n"
+            "def f(a, b):\n    s = np.multiply(np.e, b)\n    t = np.add(s, a)\n    return t\n"
         )
         mul = next(n for n in graph.nodes.values() if n.algorithm == "element_mul")
         assert mul.inputs[0][2] == "scalar"
 
     def test_np_inf_attribute(self) -> None:
         _, graph = _build(
-            "def f(a, b):\n"
-            "    s = np.divide(a, np.inf)\n"
-            "    t = np.multiply(s, b)\n"
-            "    return t\n"
+            "def f(a, b):\n    s = np.divide(a, np.inf)\n    t = np.multiply(s, b)\n    return t\n"
         )
         div = next(n for n in graph.nodes.values() if n.algorithm == "element_div")
         assert div.inputs[1][2] == "scalar"
@@ -225,7 +211,11 @@ class TestDecomposeExpr:
             {"y": ("y", Dtype.FLOAT64)},
             set(),
             {},
-            "mod", "f", "file", [], [0],
+            "mod",
+            "f",
+            "file",
+            [],
+            [0],
         )
         assert result[0] == "inter_x"
 

@@ -1,4 +1,3 @@
-
 from purce.ir.nodes import (
     DepKind,
     Dtype,
@@ -104,10 +103,12 @@ class TestSemanticSlicerBasic:
 class TestSemanticSlicerClassification:
     def test_pal_stub_generated(self) -> None:
         g = MathIRGraph()
-        g.add_node(_make_node(
-            "io_node",
-            dep_kind=DepKind.SYSTEM_PAL,
-        ))
+        g.add_node(
+            _make_node(
+                "io_node",
+                dep_kind=DepKind.SYSTEM_PAL,
+            )
+        )
         g.entry_points = ["io_node"]
 
         slicer = SemanticSlicer()
@@ -118,10 +119,12 @@ class TestSemanticSlicerClassification:
 
     def test_meta_util_inlined(self) -> None:
         g = MathIRGraph()
-        g.add_node(_make_node(
-            "util_fn",
-            dep_kind=DepKind.META_UTIL,
-        ))
+        g.add_node(
+            _make_node(
+                "util_fn",
+                dep_kind=DepKind.META_UTIL,
+            )
+        )
         g.entry_points = ["util_fn"]
 
         slicer = SemanticSlicer()
@@ -132,10 +135,12 @@ class TestSemanticSlicerClassification:
 
     def test_data_asset_error(self) -> None:
         g = MathIRGraph()
-        g.add_node(_make_node(
-            "fetch_data",
-            dep_kind=DepKind.DATA_ASSET,
-        ))
+        g.add_node(
+            _make_node(
+                "fetch_data",
+                dep_kind=DepKind.DATA_ASSET,
+            )
+        )
         g.entry_points = ["fetch_data"]
 
         slicer = SemanticSlicer()
@@ -146,10 +151,12 @@ class TestSemanticSlicerClassification:
 
     def test_data_asset_embed(self) -> None:
         g = MathIRGraph()
-        g.add_node(_make_node(
-            "fetch_data",
-            dep_kind=DepKind.DATA_ASSET,
-        ))
+        g.add_node(
+            _make_node(
+                "fetch_data",
+                dep_kind=DepKind.DATA_ASSET,
+            )
+        )
         g.entry_points = ["fetch_data"]
 
         slicer = SemanticSlicer(embed_assets=True)

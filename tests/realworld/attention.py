@@ -3,8 +3,9 @@
 import numpy as np
 
 
-def flash_attention_forward(Q: np.ndarray, K: np.ndarray, V: np.ndarray,
-                           block_size: int = 64) -> np.ndarray:
+def flash_attention_forward(
+    Q: np.ndarray, K: np.ndarray, V: np.ndarray, block_size: int = 64
+) -> np.ndarray:
     """Flash Attention: memory-efficient attention via tiling."""
     batch, seq_len, d_head = Q.shape
     O = np.zeros_like(Q)
@@ -34,8 +35,8 @@ def flash_attention_forward(Q: np.ndarray, K: np.ndarray, V: np.ndarray,
             l_new = np.add(l[:, i_start:i_end], np.sum(P, axis=-1, keepdims=True))
             scale_factor = np.exp(np.subtract(m[:, i_start:i_end], m_new))
             O[:, i_start:i_end] = np.add(
-                np.multiply(O[:, i_start:i_end], scale_factor),
-                np.matmul(P, Vj))
+                np.multiply(O[:, i_start:i_end], scale_factor), np.matmul(P, Vj)
+            )
             m[:, i_start:i_end] = m_new
             l[:, i_start:i_end] = l_new
 
@@ -43,8 +44,7 @@ def flash_attention_forward(Q: np.ndarray, K: np.ndarray, V: np.ndarray,
     return O
 
 
-def sparse_attention(Q: np.ndarray, K: np.ndarray, V: np.ndarray,
-                     mask: np.ndarray) -> np.ndarray:
+def sparse_attention(Q: np.ndarray, K: np.ndarray, V: np.ndarray, mask: np.ndarray) -> np.ndarray:
     """Sparse attention with arbitrary boolean mask."""
     batch, seq_len, d_head = Q.shape
     scale = np.sqrt(np.float64(d_head))
@@ -55,8 +55,9 @@ def sparse_attention(Q: np.ndarray, K: np.ndarray, V: np.ndarray,
     return np.matmul(weights, V)
 
 
-def linear_attention(Q: np.ndarray, K: np.ndarray, V: np.ndarray,
-                     kernel_fn: str = "elu") -> np.ndarray:
+def linear_attention(
+    Q: np.ndarray, K: np.ndarray, V: np.ndarray, kernel_fn: str = "elu"
+) -> np.ndarray:
     """Linear attention: O(n*d^2) instead of O(n^2*d)."""
     if kernel_fn == "elu":
         Q_k = np.add(_elu(Q), 1.0)
@@ -72,8 +73,9 @@ def linear_attention(Q: np.ndarray, K: np.ndarray, V: np.ndarray,
     return np.divide(numerator, denominator)
 
 
-def alibi_attention(Q: np.ndarray, K: np.ndarray, V: np.ndarray,
-                    num_heads: int, max_seq_len: int = 2048) -> np.ndarray:
+def alibi_attention(
+    Q: np.ndarray, K: np.ndarray, V: np.ndarray, num_heads: int, max_seq_len: int = 2048
+) -> np.ndarray:
     """ALiBi: Attention with Linear Biases — no learned positional embeddings."""
     batch, seq_len, d_model = Q.shape
     d_head = d_model // num_heads
@@ -81,9 +83,9 @@ def alibi_attention(Q: np.ndarray, K: np.ndarray, V: np.ndarray,
     outputs = []
 
     for h in range(num_heads):
-        q_h = Q[:, :, h * d_head:(h + 1) * d_head]
-        k_h = K[:, :, h * d_head:(h + 1) * d_head]
-        v_h = V[:, :, h * d_head:(h + 1) * d_head]
+        q_h = Q[:, :, h * d_head : (h + 1) * d_head]
+        k_h = K[:, :, h * d_head : (h + 1) * d_head]
+        v_h = V[:, :, h * d_head : (h + 1) * d_head]
         scores = np.matmul(q_h, k_h.transpose(0, 2, 1))
         bias = np.multiply(slopes[h], _causal_bias(seq_len))
         scores = np.add(scores, bias)

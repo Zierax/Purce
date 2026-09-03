@@ -191,11 +191,16 @@ def _smoke_checks(algo: str, inputs: dict[str, Any], actual: Any) -> str:
     return "unhandled structural algorithm"
 
 
-def _run_reference(executor: eq.GeneratedKernelExecutor, node: MathIRNode,
-                   content: str, seed: int, iterations: int,
-                   rtol: float, atol: float) -> KernelOutcome:
-    kr = executor.run_kernel(node, content, seed=seed, iterations=iterations,
-                             rtol=rtol, atol=atol)
+def _run_reference(
+    executor: eq.GeneratedKernelExecutor,
+    node: MathIRNode,
+    content: str,
+    seed: int,
+    iterations: int,
+    rtol: float,
+    atol: float,
+) -> KernelOutcome:
+    kr = executor.run_kernel(node, content, seed=seed, iterations=iterations, rtol=rtol, atol=atol)
     outcome = KernelOutcome(algorithm=node.algorithm, mode="reference")
     outcome.passed = kr.passed
     outcome.failed = kr.failed
@@ -205,13 +210,15 @@ def _run_reference(executor: eq.GeneratedKernelExecutor, node: MathIRNode,
     return outcome
 
 
-def _run_smoke(executor: eq.GeneratedKernelExecutor, node: MathIRNode,
-               content: str, seed: int, iterations: int) -> KernelOutcome:
+def _run_smoke(
+    executor: eq.GeneratedKernelExecutor, node: MathIRNode, content: str, seed: int, iterations: int
+) -> KernelOutcome:
     outcome = KernelOutcome(algorithm=node.algorithm, mode="smoke")
     try:
         fname, params = eq.parse_kernel_signature(content)
-        driver = eq._Driver(node.algorithm, node, executor._lib, fname, params,
-                            ref_fn=None, op=None)
+        driver = eq._Driver(
+            node.algorithm, node, executor._lib, fname, params, ref_fn=None, op=None
+        )
     except Exception as e:  # construction failure, not a runtime failure
         outcome.errors.append(f"driver construction failed: {e}")
         return outcome
@@ -277,14 +284,20 @@ class SweepReport:
         return "\n".join(lines)
 
 
-def run_sweep(iterations: int = 8, seeds: tuple[int, ...] = (42, 1337),
-              rtol: float = 1e-5, atol: float = 1e-8,
-              keep_dir: str | None = None) -> SweepReport:
+def run_sweep(
+    iterations: int = 8,
+    seeds: tuple[int, ...] = (42, 1337),
+    rtol: float = 1e-5,
+    atol: float = 1e-8,
+    keep_dir: str | None = None,
+) -> SweepReport:
     """Compile every reachable kernel once and verify each one."""
     pairs = build_kernels()
     algo_by_node = {node.node_id: node.algorithm for node, _ in pairs}
     executor = eq.GeneratedKernelExecutor(
-        [content for _, content in pairs], algo_by_node, keep_dir=keep_dir,
+        [content for _, content in pairs],
+        algo_by_node,
+        keep_dir=keep_dir,
     )
     executor.build()
     report = SweepReport(outcomes=[], iterations=iterations, seeds=seeds)
@@ -296,8 +309,7 @@ def run_sweep(iterations: int = 8, seeds: tuple[int, ...] = (42, 1337),
                 if algo in structural_smoke():
                     o = _run_smoke(executor, node, content, seed, iterations)
                 else:
-                    o = _run_reference(executor, node, content, seed,
-                                       iterations, rtol, atol)
+                    o = _run_reference(executor, node, content, seed, iterations, rtol, atol)
                 if outcome.mode == "":
                     outcome.mode = o.mode
                 outcome.passed += o.passed

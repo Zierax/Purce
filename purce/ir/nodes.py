@@ -6,6 +6,7 @@ from enum import Enum, auto
 
 class Effect(Enum):
     """Classifies function side effects."""
+
     PURE = auto()
     IO = auto()
     TEMPORAL = auto()
@@ -15,6 +16,7 @@ class Effect(Enum):
 
 class Dtype(Enum):
     """Supported data types for IR nodes."""
+
     FLOAT32 = auto()
     FLOAT64 = auto()
     INT32 = auto()
@@ -28,6 +30,7 @@ class Dtype(Enum):
 
 class DepKind(Enum):
     """Dependency classification per C99-SOS standard."""
+
     MATH_KERNEL = 1
     SYSTEM_PAL = 2
     DATA_ASSET = 3
@@ -37,6 +40,7 @@ class DepKind(Enum):
 @dataclass
 class ReductionEntry:
     """Records a transformation applied during IR construction."""
+
     rule: str
     description: str
     original: str | None = None
@@ -45,6 +49,7 @@ class ReductionEntry:
 @dataclass
 class MathIRNode:
     """A single node in the Math-IR graph representing one semantic unit."""
+
     node_id: str
     origin_symbol: str
     origin_file: str
@@ -82,6 +87,7 @@ class MathIRNode:
 @dataclass
 class MathIRGraph:
     """DAG of Math-IR nodes representing an entire computation."""
+
     nodes: dict[str, MathIRNode] = field(default_factory=dict)
     entry_points: list[str] = field(default_factory=list)
 
@@ -100,7 +106,7 @@ class MathIRGraph:
 
     def topological_sort(self) -> list[MathIRNode]:
         """Return nodes in dependency order (leaves first, entry points last).
-        
+
         Uses iterative Kahn's algorithm to avoid stack overflow on deep graphs.
         """
         in_degree: dict[str, int] = {nid: 0 for nid in self.nodes}

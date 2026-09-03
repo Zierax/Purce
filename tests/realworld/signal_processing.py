@@ -11,9 +11,9 @@ def fft_convolution(signal: np.ndarray, kernel: np.ndarray) -> np.ndarray:
         fft_size *= 2
 
     sig_padded = np.zeros(fft_size)
-    sig_padded[:len(signal)] = signal
+    sig_padded[: len(signal)] = signal
     kern_padded = np.zeros(fft_size)
-    kern_padded[:len(kernel)] = kernel
+    kern_padded[: len(kernel)] = kernel
 
     sig_fft = _fft(sig_padded)
     kern_fft = _fft(kern_padded)
@@ -22,8 +22,9 @@ def fft_convolution(signal: np.ndarray, kernel: np.ndarray) -> np.ndarray:
     return result[:n]
 
 
-def spectrogram(signal: np.ndarray, window_size: int = 256,
-                hop_size: int = 128, n_fft: int = 256) -> np.ndarray:
+def spectrogram(
+    signal: np.ndarray, window_size: int = 256, hop_size: int = 128, n_fft: int = 256
+) -> np.ndarray:
     """Short-time Fourier Transform spectrogram."""
     num_frames = (len(signal) - window_size) // hop_size + 1
     window = _hann_window(window_size)
@@ -31,15 +32,14 @@ def spectrogram(signal: np.ndarray, window_size: int = 256,
 
     for i in range(num_frames):
         start = i * hop_size
-        frame = np.multiply(signal[start:start + window_size], window)
+        frame = np.multiply(signal[start : start + window_size], window)
         spectrum = _fft_real(frame, n_fft)
-        mag = np.abs(spectrum[:n_fft // 2 + 1])
+        mag = np.abs(spectrum[: n_fft // 2 + 1])
         spec[i, :] = np.log(np.add(mag, 1e-7))
     return spec
 
 
-def mel_filterbank(n_filters: int = 80, n_fft: int = 256,
-                   sample_rate: int = 16000) -> np.ndarray:
+def mel_filterbank(n_filters: int = 80, n_fft: int = 256, sample_rate: int = 16000) -> np.ndarray:
     """Mel-scale triangular filterbank."""
     low_freq_mel = 0.0
     high_freq_mel = 2595.0 * np.log10(np.add(1.0, np.divide(sample_rate / 2.0, 700.0)))
@@ -54,17 +54,20 @@ def mel_filterbank(n_filters: int = 80, n_fft: int = 256,
         f_right = bin_points[m + 1]
         for k in range(f_left, f_center):
             if f_center != f_left:
-                filterbank[m - 1, k] = np.divide(np.subtract(k, f_left),
-                                                  np.subtract(f_center, f_left))
+                filterbank[m - 1, k] = np.divide(
+                    np.subtract(k, f_left), np.subtract(f_center, f_left)
+                )
         for k in range(f_center, f_right):
             if f_right != f_center:
-                filterbank[m - 1, k] = np.divide(np.subtract(f_right, k),
-                                                  np.subtract(f_right, f_center))
+                filterbank[m - 1, k] = np.divide(
+                    np.subtract(f_right, k), np.subtract(f_right, f_center)
+                )
     return filterbank
 
 
-def stft(signal: np.ndarray, window_size: int = 1024,
-         hop_size: int = 512, n_fft: int = 1024) -> tuple:
+def stft(
+    signal: np.ndarray, window_size: int = 1024, hop_size: int = 512, n_fft: int = 1024
+) -> tuple:
     """Short-Time Fourier Transform: returns (magnitude, phase)."""
     num_frames = (len(signal) - window_size) // hop_size + 1
     window = _hann_window(window_size)
@@ -73,16 +76,17 @@ def stft(signal: np.ndarray, window_size: int = 1024,
 
     for i in range(num_frames):
         start = i * hop_size
-        frame = np.multiply(signal[start:start + window_size], window)
+        frame = np.multiply(signal[start : start + window_size], window)
         spectrum = _fft_real(frame, n_fft)
-        half = spectrum[:n_fft // 2 + 1]
+        half = spectrum[: n_fft // 2 + 1]
         magnitude[i, :] = np.abs(half)
         phase[i, :] = np.angle(half)
     return magnitude, phase
 
 
-def istft(magnitude: np.ndarray, phase: np.ndarray,
-          window_size: int = 1024, hop_size: int = 512) -> np.ndarray:
+def istft(
+    magnitude: np.ndarray, phase: np.ndarray, window_size: int = 1024, hop_size: int = 512
+) -> np.ndarray:
     """Inverse Short-Time Fourier Transform."""
     num_frames = magnitude.shape[0]
     output_len = (num_frames - 1) * hop_size + window_size
@@ -93,12 +97,12 @@ def istft(magnitude: np.ndarray, phase: np.ndarray,
     for i in range(num_frames):
         spectrum = np.multiply(magnitude[i], np.exp(np.multiply(1j, phase[i])))
         full_spectrum = np.zeros(window_size)
-        full_spectrum[:window_size // 2 + 1] = spectrum
-        full_spectrum[window_size // 2 + 1:] = np.conj(spectrum[1:window_size // 2])[::-1]
+        full_spectrum[: window_size // 2 + 1] = spectrum
+        full_spectrum[window_size // 2 + 1 :] = np.conj(spectrum[1 : window_size // 2])[::-1]
         frame = np.real(_ifft(full_spectrum))
         start = i * hop_size
-        output[start:start + window_size] += np.multiply(frame, window)
-        window_sum[start:start + window_size] += np.power(window, 2)
+        output[start : start + window_size] += np.multiply(frame, window)
+        window_sum[start : start + window_size] += np.power(window, 2)
 
     window_sum = np.maximum(window_sum, 1e-7)
     return np.divide(output, window_sum)
@@ -131,8 +135,8 @@ def _fft(x: np.ndarray) -> np.ndarray:
     odd = _fft(x[1::2])
     T = np.exp(np.multiply(-2j, np.pi * np.arange(n // 2) / n))
     result = np.zeros(n, dtype=np.complex128)
-    result[:n // 2] = np.add(even, np.multiply(T, odd))
-    result[n // 2:] = np.subtract(even, np.multiply(T, odd))
+    result[: n // 2] = np.add(even, np.multiply(T, odd))
+    result[n // 2 :] = np.subtract(even, np.multiply(T, odd))
     return result
 
 
@@ -146,7 +150,7 @@ def _ifft(x: np.ndarray) -> np.ndarray:
 def _fft_real(x: np.ndarray, n: int = 0) -> np.ndarray:
     if n > len(x):
         padded = np.zeros(n)
-        padded[:len(x)] = x
+        padded[: len(x)] = x
         return _fft(padded)
     return _fft(x)
 
@@ -161,5 +165,6 @@ def _dft(x: np.ndarray) -> np.ndarray:
 
 
 def _hann_window(size: int) -> np.ndarray:
-    return np.multiply(0.5, np.subtract(1.0, np.cos(np.multiply(
-        2.0 * np.pi / size, np.arange(size)))))
+    return np.multiply(
+        0.5, np.subtract(1.0, np.cos(np.multiply(2.0 * np.pi / size, np.arange(size))))
+    )

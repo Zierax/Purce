@@ -113,6 +113,7 @@ def _check_c_provenance(content: str) -> bool:
 
 def run_verification() -> VerificationReport:
     from datetime import UTC, datetime
+
     report = VerificationReport(timestamp=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"))
     start = time.time()
 
@@ -120,10 +121,13 @@ def run_verification() -> VerificationReport:
     print("[1/5] Running unit tests...")
     try:
         import subprocess
+
         result = subprocess.run(
             [sys.executable, "-m", "pytest", "tests/", "-q", "--tb=line"],
-            capture_output=True, text=True, timeout=120,
-            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
         )
         output = result.stdout + result.stderr
         for line in output.split("\n"):
@@ -161,7 +165,9 @@ def run_verification() -> VerificationReport:
                 report.fuzz_passed += 1
             else:
                 report.fuzz_failed += 1
-                report.errors.append(f"Fuzz failed: {op} ({result.failed}/{result.iterations} failed)")
+                report.errors.append(
+                    f"Fuzz failed: {op} ({result.failed}/{result.iterations} failed)"
+                )
         if c_available:
             compiled.close()
     except Exception as e:
@@ -199,8 +205,14 @@ def run_verification() -> VerificationReport:
     synthetic_sources = [
         ("add", "import numpy as np\ndef add(a, b):\n    return np.add(a, b)"),
         ("matmul", "import numpy as np\ndef mm(A, B):\n    return np.matmul(A, B)"),
-        ("softmax", "import numpy as np\ndef sm(x):\n    return np.divide(np.exp(x), np.sum(np.exp(x)))"),
-        ("norm", "import numpy as np\ndef nrm(x, g, b):\n    m = np.mean(x)\n    return np.add(np.multiply(g, np.subtract(x, m)), b)"),
+        (
+            "softmax",
+            "import numpy as np\ndef sm(x):\n    return np.divide(np.exp(x), np.sum(np.exp(x)))",
+        ),
+        (
+            "norm",
+            "import numpy as np\ndef nrm(x, g, b):\n    m = np.mean(x)\n    return np.add(np.multiply(g, np.subtract(x, m)), b)",
+        ),
         ("fft", "import numpy as np\ndef f(r, i, n):\n    return np.fft.fft(r)"),
     ]
     for name, src in synthetic_sources:
@@ -225,10 +237,14 @@ def run_verification() -> VerificationReport:
     if report.c_files_generated > 0:
         heap_violations = report.c_files_generated - report.c_files_heap_free
         if heap_violations > 0:
-            report.warnings.append(f"{heap_violations}/{report.c_files_generated} C files use heap allocation")
+            report.warnings.append(
+                f"{heap_violations}/{report.c_files_generated} C files use heap allocation"
+            )
         provenance_gaps = report.c_files_generated - report.c_files_provenance_ok
         if provenance_gaps > 0:
-            report.warnings.append(f"{provenance_gaps}/{report.c_files_generated} C files missing provenance headers")
+            report.warnings.append(
+                f"{provenance_gaps}/{report.c_files_generated} C files missing provenance headers"
+            )
         print(f"  Heap-free: {report.c_files_heap_free}/{report.c_files_generated}")
         print(f"  Provenance: {report.c_files_provenance_ok}/{report.c_files_generated}")
     else:

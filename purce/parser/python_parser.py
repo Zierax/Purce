@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from purce.ir.builder import NUMPY_OP_MAP
 from purce.ir.nodes import DepKind, Dtype, Effect, MathIRGraph, MathIRNode, ReductionEntry
 
+
 def _build_supported_modules() -> dict[str, set[str]]:
     mods: dict[str, set[str]] = {}
     for full in NUMPY_OP_MAP:
@@ -116,14 +117,16 @@ class PythonParser:
         try:
             tree = ast.parse(source)
         except SyntaxError as e:
-            result.diagnostics.append(Diagnostic(
-                severity="ERROR",
-                file=filename,
-                line=e.lineno or 0,
-                construct="syntax",
-                reason=str(e.msg),
-                suggestion="Fix Python syntax errors",
-            ))
+            result.diagnostics.append(
+                Diagnostic(
+                    severity="ERROR",
+                    file=filename,
+                    line=e.lineno or 0,
+                    construct="syntax",
+                    reason=str(e.msg),
+                    suggestion="Fix Python syntax errors",
+                )
+            )
             return result
 
         self._alias_map = self._build_alias_map(tree)
@@ -142,14 +145,18 @@ class PythonParser:
             with open(path, "r", encoding="utf-8") as f:
                 source = f.read()
         except (OSError, UnicodeDecodeError) as e:
-            return ParseResult(diagnostics=[Diagnostic(
-                severity="ERROR",
-                file=path,
-                line=0,
-                construct="file_read",
-                reason=str(e),
-                suggestion="Check file path and encoding",
-            )])
+            return ParseResult(
+                diagnostics=[
+                    Diagnostic(
+                        severity="ERROR",
+                        file=path,
+                        line=0,
+                        construct="file_read",
+                        reason=str(e),
+                        suggestion="Check file path and encoding",
+                    )
+                ]
+            )
         return self.parse_source(source, filename=path)
 
     def _parse_function(self, func: ast.FunctionDef, filename: str) -> ParsedFunction | None:
@@ -294,23 +301,27 @@ class PythonParser:
             if isinstance(child, ast.Call):
                 target = self._resolve_call_target(child.func)
                 if target in ("eval", "exec", "getattr", "setattr"):
-                    issues.append(Diagnostic(
-                        severity="ERROR",
-                        file="",
-                        line=child.lineno,
-                        construct=target,
-                        reason=f"Dynamic dispatch '{target}()' cannot be translated to C99",
-                        suggestion="Refactor to use static dispatch",
-                    ))
+                    issues.append(
+                        Diagnostic(
+                            severity="ERROR",
+                            file="",
+                            line=child.lineno,
+                            construct=target,
+                            reason=f"Dynamic dispatch '{target}()' cannot be translated to C99",
+                            suggestion="Refactor to use static dispatch",
+                        )
+                    )
                 elif target == "open":
-                    issues.append(Diagnostic(
-                        severity="ERROR",
-                        file="",
-                        line=child.lineno,
-                        construct="open",
-                        reason="File I/O cannot be translated to C99 math kernel",
-                        suggestion="Separate I/O from computation",
-                    ))
+                    issues.append(
+                        Diagnostic(
+                            severity="ERROR",
+                            file="",
+                            line=child.lineno,
+                            construct="open",
+                            reason="File I/O cannot be translated to C99 math kernel",
+                            suggestion="Separate I/O from computation",
+                        )
+                    )
         for issue in issues:
             self._diagnostics.append(issue)
         return issues
@@ -367,11 +378,13 @@ class PythonParser:
             algo = NUMPY_OP_MAP.get(call, "unknown")
             if algo not in algorithms:
                 algorithms.append(algo)
-            reductions.append(ReductionEntry(
-                rule="numpy_op_extraction",
-                description=f"Extracted {call} as {algo} kernel",
-                original=call,
-            ))
+            reductions.append(
+                ReductionEntry(
+                    rule="numpy_op_extraction",
+                    description=f"Extracted {call} as {algo} kernel",
+                    original=call,
+                )
+            )
 
         primary = algorithms[0] if algorithms else "composite"
         return primary, reductions

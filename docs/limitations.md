@@ -151,7 +151,7 @@ import numpy as np, ctypes, tempfile, pathlib, subprocess, shutil
 Or more concretely, once the fix lands:
 
 ```powershell
-# Regenerate and verify � should be 92/92 kernels, including the new n!=k take cases
+# Regenerate and verify � should be 91/91 kernels, including the new n!=k take cases
 python -m benchmarks.hardened.run_all_hardened
 # The new regression case:
 python -m purce extract tests/regression_take_n_neq_k.py -o /tmp/take_fix
@@ -1052,9 +1052,9 @@ if (Select-String -Pattern "#error" -Path /tmp/chaos_final/*.c) { throw "chaos s
 purce extract tests/realworld -o /tmp/realworld_final
 if (Select-String -Pattern "#error" -Path /tmp/realworld_final/*.c) { throw "realworld regressed" }
 
-# 4. Full hardened run � 92/92 sweep (after stubs are promoted, was 91/91)
+# 4. Full hardened run � 91/91 sweep (all stubs resolved)
 python -m benchmarks.hardened.run_all_hardened
-# Must report: stage1 92/92, stage2 92/92, stage3 92/92
+# Must report: stage1 91/91, stage2 91/91, stage3 91/91
 ```
 
 ---

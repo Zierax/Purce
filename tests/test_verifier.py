@@ -1,4 +1,5 @@
 """Tests for the differential fuzzer — now actually tests C code via ctypes."""
+
 import pytest
 
 from purce.ir.nodes import Dtype, Effect, MathIRGraph, MathIRNode
@@ -6,6 +7,7 @@ from purce.verifier.fuzzer import DifferentialFuzzer, FuzzResult
 from purce.verifier.z3_verifier import Z3Verifier
 
 import shutil as _shutil
+
 _HAS_GCC = _shutil.which("gcc") is not None or _shutil.which("cc") is not None
 RequiresGcc = pytest.mark.skipif(not _HAS_GCC, reason="gcc not available")
 
@@ -33,6 +35,7 @@ def _make_node(
 
 # ── Python-only fuzzing (backward compat) ──
 
+
 class TestFuzzerPythonOnly:
     def test_element_add_python(self) -> None:
         f = DifferentialFuzzer()
@@ -49,6 +52,7 @@ class TestFuzzerPythonOnly:
 
 
 # ── C-backed fuzzing (actual verification) ──
+
 
 @RequiresGcc
 class TestFuzzerCBackendElementwise:
@@ -135,8 +139,18 @@ class TestFuzzerCBackendReductions:
 
 @RequiresGcc
 class TestFuzzerCBackendUnary:
-    @pytest.mark.parametrize("op", ["element_sin", "element_cos", "element_tan",
-                                     "element_sqrt", "element_exp", "element_log", "element_abs"])
+    @pytest.mark.parametrize(
+        "op",
+        [
+            "element_sin",
+            "element_cos",
+            "element_tan",
+            "element_sqrt",
+            "element_exp",
+            "element_log",
+            "element_abs",
+        ],
+    )
     def test_unary_ops(self, op: str) -> None:
         f, h = DifferentialFuzzer.with_c_backend(seed=42)
         try:
@@ -254,6 +268,7 @@ class TestFuzzerCBackendFuzzAll:
 
 # ── FuzzResult data class ──
 
+
 class TestFuzzResult:
     def test_success_rate(self) -> None:
         r = FuzzResult(operation="test", iterations=100, passed=95, failed=5)
@@ -270,14 +285,14 @@ class TestFuzzResult:
 
     def test_error_tracking(self) -> None:
         r = FuzzResult(
-            operation="test", iterations=10, passed=8, failed=2,
-            max_error=0.05, mean_error=0.01
+            operation="test", iterations=10, passed=8, failed=2, max_error=0.05, mean_error=0.01
         )
         assert r.max_error == 0.05
         assert r.mean_error == 0.01
 
 
 # ── Z3 Verifier ──
+
 
 class TestZ3Verifier:
     def test_element_add(self) -> None:

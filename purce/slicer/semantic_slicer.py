@@ -28,11 +28,13 @@ class SemanticSlicer:
 
         errors = result.graph.validate_dag()
         for err in errors:
-            result.diagnostics.append({
-                "severity": "ERROR",
-                "construct": "dag_validation",
-                "reason": err,
-            })
+            result.diagnostics.append(
+                {
+                    "severity": "ERROR",
+                    "construct": "dag_validation",
+                    "reason": err,
+                }
+            )
 
         return result
 
@@ -103,14 +105,16 @@ class SemanticSlicer:
                     result.graph.add_node(node)
                 else:
                     result.data_assets.append(nid)
-                    result.diagnostics.append({
-                        "severity": "ERROR",
-                        "construct": "data_asset",
-                        "reason": (
-                            f"Node '{nid}' requires runtime data fetching. "
-                            "Use --embed-assets to include, or refactor to remove data dependency."
-                        ),
-                    })
+                    result.diagnostics.append(
+                        {
+                            "severity": "ERROR",
+                            "construct": "data_asset",
+                            "reason": (
+                                f"Node '{nid}' requires runtime data fetching. "
+                                "Use --embed-assets to include, or refactor to remove data dependency."
+                            ),
+                        }
+                    )
 
             elif kind == DepKind.META_UTIL:
                 result.inlined_utils.append(nid)

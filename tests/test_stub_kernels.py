@@ -1,4 +1,5 @@
 """Regression for stub kernels: they must not claim verification."""
+
 from purce.backend.c99_generator import C99Generator, MATH_KERNEL_BODIES, _STUB_ALGORITHMS
 from purce.ir.builder import MathIRBuilder
 

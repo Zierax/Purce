@@ -38,8 +38,7 @@ def serf(x: np.ndarray) -> np.ndarray:
 
 def soiu(x: np.ndarray, alpha: float = 1.0, beta: float = 1.0) -> np.ndarray:
     """SoIU activation: sigmoid(alpha * x) * tanh(softplus(beta * x))"""
-    return np.multiply(_sigmoid(np.multiply(alpha, x)),
-                       np.tanh(_softplus(np.multiply(beta, x))))
+    return np.multiply(_sigmoid(np.multiply(alpha, x)), np.tanh(_softplus(np.multiply(beta, x))))
 
 
 def logsig(x: np.ndarray) -> np.ndarray:
@@ -69,7 +68,9 @@ def glu(x: np.ndarray, axis: int = -1) -> np.ndarray:
 
 def celu(x: np.ndarray, alpha: float = 1.0) -> np.ndarray:
     """Continuously differentiable ELU."""
-    return np.where(np.greater(x, 0), x, np.multiply(alpha, np.subtract(np.exp(np.divide(x, alpha)), 1.0)))
+    return np.where(
+        np.greater(x, 0), x, np.multiply(alpha, np.subtract(np.exp(np.divide(x, alpha)), 1.0))
+    )
 
 
 def _softplus(x: np.ndarray) -> np.ndarray:
@@ -79,9 +80,11 @@ def _softplus(x: np.ndarray) -> np.ndarray:
 
 def _sigmoid(x: np.ndarray) -> np.ndarray:
     """Numerically stable sigmoid."""
-    return np.where(np.greater(x, 0),
-                    np.divide(1.0, np.add(1.0, np.exp(-x))),
-                    np.divide(np.exp(x), np.add(np.exp(x), 1.0)))
+    return np.where(
+        np.greater(x, 0),
+        np.divide(1.0, np.add(1.0, np.exp(-x))),
+        np.divide(np.exp(x), np.add(np.exp(x), 1.0)),
+    )
 
 
 def _erf(x: np.ndarray) -> np.ndarray:
@@ -92,10 +95,15 @@ def _erf(x: np.ndarray) -> np.ndarray:
     t3 = np.multiply(t2, t)
     t4 = np.multiply(t3, t)
     t5 = np.multiply(t4, t)
-    poly = np.add(np.multiply(0.254829592, t),
-                  np.add(np.multiply(-0.284496736, t2),
-                         np.add(np.multiply(1.421413741, t3),
-                                np.add(np.multiply(-1.453152027, t4),
-                                       np.multiply(1.061405429, t5)))))
+    poly = np.add(
+        np.multiply(0.254829592, t),
+        np.add(
+            np.multiply(-0.284496736, t2),
+            np.add(
+                np.multiply(1.421413741, t3),
+                np.add(np.multiply(-1.453152027, t4), np.multiply(1.061405429, t5)),
+            ),
+        ),
+    )
     result = np.subtract(1.0, np.multiply(poly, np.exp(np.multiply(-x_abs, x_abs))))
     return np.where(np.greater(x, 0), result, np.negative(result))

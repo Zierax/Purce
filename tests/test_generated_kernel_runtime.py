@@ -87,9 +87,9 @@ class TestGeneratedKernelRuntime:
         assert list(out) == np.eye(4).flatten().tolist()
 
     def test_matrix_diag_from_diagonal_matrix(self, tmp_path) -> None:
-        c = _generate_c_files(
-            "import numpy as np\ndef f():\n    return np.diag([1.0, 2.0, 3.0])"
-        )[0]
+        c = _generate_c_files("import numpy as np\ndef f():\n    return np.diag([1.0, 2.0, 3.0])")[
+            0
+        ]
         kernel = _bind_kernel(_compile_shared(c, tmp_path, "diag"), c)
         out, ptr = _double_array([0.0] * 9)
         kernel(3, ptr)
@@ -105,18 +105,18 @@ class TestGeneratedKernelRuntime:
         assert list(out) == np.diag(matrix.reshape(3, 3)).tolist()
 
     def test_array_literal_values(self, tmp_path) -> None:
-        c = _generate_c_files(
-            "import numpy as np\ndef f():\n    return np.array([1.0, 2.0, 3.0])"
-        )[0]
+        c = _generate_c_files("import numpy as np\ndef f():\n    return np.array([1.0, 2.0, 3.0])")[
+            0
+        ]
         kernel = _bind_kernel(_compile_shared(c, tmp_path, "arr"), c)
         out, ptr = _double_array([0.0] * 3)
         kernel(3, ptr)
         assert list(out) == [1.0, 2.0, 3.0]
 
     def test_array_literal_mixed_named_inputs(self, tmp_path) -> None:
-        c = _generate_c_files(
-            "import numpy as np\ndef f(x, y):\n    return np.array([x, y, 2.5])"
-        )[0]
+        c = _generate_c_files("import numpy as np\ndef f(x, y):\n    return np.array([x, y, 2.5])")[
+            0
+        ]
         kernel = _bind_kernel(_compile_shared(c, tmp_path, "arrmix"), c)
         x, xptr = _double_array([1.5, 9.0, 9.0])
         y, yptr = _double_array([3.5, 9.0, 9.0])
@@ -134,7 +134,9 @@ class TestGeneratedKernelRuntime:
             "    w_left = np.divide(n_left, n_total)\n"
             "    return np.add(n_right, w_left)\n"
         )
-        libs = [_compile_shared(c, tmp_path, f"ig{i}") for i, c in enumerate(_generate_c_files(source))]
+        libs = [
+            _compile_shared(c, tmp_path, f"ig{i}") for i, c in enumerate(_generate_c_files(source))
+        ]
         for i, c in enumerate(_generate_c_files(source)):
             kernel = _bind_kernel(libs[i], c)
             if "element_sub" in c:

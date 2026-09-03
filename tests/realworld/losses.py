@@ -20,8 +20,9 @@ def sparse_softmax_cross_entropy(logits: np.ndarray, labels: np.ndarray) -> np.n
     return neg_log_prob
 
 
-def focal_loss(logits: np.ndarray, labels: np.ndarray,
-               gamma: float = 2.0, alpha: float = 0.25) -> np.ndarray:
+def focal_loss(
+    logits: np.ndarray, labels: np.ndarray, gamma: float = 2.0, alpha: float = 0.25
+) -> np.ndarray:
     """Focal loss for class imbalance: FL = -alpha * (1-p)^gamma * log(p)."""
     probs = _softmax(logits)
     batch_idx = np.arange(logits.shape[0])
@@ -31,8 +32,7 @@ def focal_loss(logits: np.ndarray, labels: np.ndarray,
     return np.multiply(focal_weight, ce)
 
 
-def huber_loss(y_true: np.ndarray, y_pred: np.ndarray,
-               delta: float = 1.0) -> np.ndarray:
+def huber_loss(y_true: np.ndarray, y_pred: np.ndarray, delta: float = 1.0) -> np.ndarray:
     """Huber loss: quadratic for small errors, linear for large."""
     diff = np.subtract(y_true, y_pred)
     abs_diff = np.abs(diff)
@@ -41,8 +41,9 @@ def huber_loss(y_true: np.ndarray, y_pred: np.ndarray,
     return np.where(np.less(abs_diff, delta), quadratic, linear)
 
 
-def contrastive_loss(embed1: np.ndarray, embed2: np.ndarray,
-                     label: np.ndarray, margin: float = 1.0) -> np.ndarray:
+def contrastive_loss(
+    embed1: np.ndarray, embed2: np.ndarray, label: np.ndarray, margin: float = 1.0
+) -> np.ndarray:
     """Contrastive loss for siamese networks."""
     diff = np.subtract(embed1, embed2)
     dist = np.sqrt(np.add(np.sum(np.power(diff, 2), axis=-1), 1e-7))
@@ -52,8 +53,12 @@ def contrastive_loss(embed1: np.ndarray, embed2: np.ndarray,
     return np.multiply(0.5, np.add(pos_loss, neg_loss))
 
 
-def ctc_loss(log_probs: np.ndarray, targets: np.ndarray,
-             input_lengths: np.ndarray, target_lengths: np.ndarray) -> np.ndarray:
+def ctc_loss(
+    log_probs: np.ndarray,
+    targets: np.ndarray,
+    input_lengths: np.ndarray,
+    target_lengths: np.ndarray,
+) -> np.ndarray:
     """CTC loss for sequence-to-sequence models (simplified)."""
     batch_size = log_probs.shape[0]
     losses = np.zeros(batch_size)
@@ -78,8 +83,9 @@ def ctc_loss(log_probs: np.ndarray, targets: np.ndarray,
     return losses
 
 
-def label_smoothing_cross_entropy(logits: np.ndarray, labels: np.ndarray,
-                                   smoothing: float = 0.1) -> np.ndarray:
+def label_smoothing_cross_entropy(
+    logits: np.ndarray, labels: np.ndarray, smoothing: float = 0.1
+) -> np.ndarray:
     """Cross-entropy with label smoothing."""
     n_classes = logits.shape[-1]
     smoothed = np.full_like(labels, smoothing / n_classes)
@@ -95,8 +101,7 @@ def kl_divergence(p: np.ndarray, q: np.ndarray) -> np.ndarray:
     return np.sum(np.multiply(p_safe, np.log(np.divide(p_safe, q_safe))), axis=-1)
 
 
-def cosine_similarity_loss(embed1: np.ndarray, embed2: np.ndarray,
-                           label: np.ndarray) -> np.ndarray:
+def cosine_similarity_loss(embed1: np.ndarray, embed2: np.ndarray, label: np.ndarray) -> np.ndarray:
     """Cosine similarity-based loss."""
     dot = np.sum(np.multiply(embed1, embed2), axis=-1)
     norm1 = np.sqrt(np.add(np.sum(np.power(embed1, 2), axis=-1), 1e-7))

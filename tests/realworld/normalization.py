@@ -9,8 +9,9 @@ def rmsnorm_forward(x: np.ndarray, gamma: np.ndarray, eps: float = 1e-6) -> np.n
     return np.multiply(np.divide(x, rms), gamma)
 
 
-def groupnorm_forward(x: np.ndarray, gamma: np.ndarray, beta: np.ndarray,
-                      num_groups: int, eps: float = 1e-5) -> np.ndarray:
+def groupnorm_forward(
+    x: np.ndarray, gamma: np.ndarray, beta: np.ndarray, num_groups: int, eps: float = 1e-5
+) -> np.ndarray:
     """Group normalization: normalize within groups of channels."""
     batch, channels, h, w = x.shape
     channels_per_group = channels // num_groups
@@ -22,13 +23,13 @@ def groupnorm_forward(x: np.ndarray, gamma: np.ndarray, beta: np.ndarray,
         mean = np.mean(group, axis=(1, 2, 3), keepdims=True)
         var = np.var(group, axis=(1, 2, 3), keepdims=True)
         norm = np.divide(np.subtract(group, mean), np.sqrt(np.add(var, eps)))
-        output[:, start:end, :, :] = np.add(np.multiply(norm, gamma[start:end]),
-                                            beta[start:end])
+        output[:, start:end, :, :] = np.add(np.multiply(norm, gamma[start:end]), beta[start:end])
     return output
 
 
-def instancenorm_forward(x: np.ndarray, gamma: np.ndarray, beta: np.ndarray,
-                         eps: float = 1e-5) -> np.ndarray:
+def instancenorm_forward(
+    x: np.ndarray, gamma: np.ndarray, beta: np.ndarray, eps: float = 1e-5
+) -> np.ndarray:
     """Instance normalization: normalize each sample independently."""
     mean = np.mean(x, axis=(2, 3), keepdims=True)
     var = np.var(x, axis=(2, 3), keepdims=True)
@@ -36,8 +37,7 @@ def instancenorm_forward(x: np.ndarray, gamma: np.ndarray, beta: np.ndarray,
     return np.add(np.multiply(norm, gamma), beta)
 
 
-def spectral_norm_forward(W: np.ndarray, u: np.ndarray,
-                          n_power_iterations: int = 1) -> tuple:
+def spectral_norm_forward(W: np.ndarray, u: np.ndarray, n_power_iterations: int = 1) -> tuple:
     """Spectral normalization: W / sigma(W) using power iteration."""
     for _ in range(n_power_iterations):
         v = np.matmul(W.T, u)

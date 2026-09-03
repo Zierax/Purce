@@ -16,8 +16,9 @@ def dense_backward(d_out: np.ndarray, x: np.ndarray, W: np.ndarray) -> tuple:
     return dW, db, d_x
 
 
-def conv2d_forward(x: np.ndarray, kernel: np.ndarray, bias: np.ndarray,
-                   stride: int = 1, padding: int = 0) -> np.ndarray:
+def conv2d_forward(
+    x: np.ndarray, kernel: np.ndarray, bias: np.ndarray, stride: int = 1, padding: int = 0
+) -> np.ndarray:
     """2D convolution: output[i,j] = sum over (k,l) of x[i+k,j+l] * kernel[k,l] + bias."""
     batch, in_h, in_w, in_c = x.shape
     k_h, k_w, in_c2, out_c = kernel.shape
@@ -28,7 +29,7 @@ def conv2d_forward(x: np.ndarray, kernel: np.ndarray, bias: np.ndarray,
 
     if padding > 0:
         x_padded = np.zeros((batch, in_h + 2 * padding, in_w + 2 * padding, in_c))
-        x_padded[:, padding:padding + in_h, padding:padding + in_w, :] = x
+        x_padded[:, padding : padding + in_h, padding : padding + in_w, :] = x
         x = x_padded
 
     output = np.zeros((batch, out_h, out_w, out_c))
@@ -36,15 +37,14 @@ def conv2d_forward(x: np.ndarray, kernel: np.ndarray, bias: np.ndarray,
         for j in range(out_w):
             h_start = i * stride
             w_start = j * stride
-            patch = x[:, h_start:h_start + k_h, w_start:w_start + k_w, :]
+            patch = x[:, h_start : h_start + k_h, w_start : w_start + k_w, :]
             for co in range(out_c):
                 val = np.sum(np.multiply(patch, kernel[:, :, :, co]))
                 output[:, i, j, co] = val + bias[co]
     return output
 
 
-def multi_head_attention(Q: np.ndarray, K: np.ndarray, V: np.ndarray,
-                         n_heads: int) -> tuple:
+def multi_head_attention(Q: np.ndarray, K: np.ndarray, V: np.ndarray, n_heads: int) -> tuple:
     """Multi-head scaled dot-product attention.
 
     Returns (output, attention_weights).
@@ -56,9 +56,9 @@ def multi_head_attention(Q: np.ndarray, K: np.ndarray, V: np.ndarray,
     all_weights = []
 
     for h in range(n_heads):
-        q_h = Q[:, :, h * d_head:(h + 1) * d_head]
-        k_h = K[:, :, h * d_head:(h + 1) * d_head]
-        v_h = V[:, :, h * d_head:(h + 1) * d_head]
+        q_h = Q[:, :, h * d_head : (h + 1) * d_head]
+        k_h = K[:, :, h * d_head : (h + 1) * d_head]
+        v_h = V[:, :, h * d_head : (h + 1) * d_head]
 
         scores = np.matmul(q_h, k_h.transpose(0, 2, 1))
         scale = np.sqrt(np.float64(d_head))
@@ -80,11 +80,13 @@ def _softmax_3d(x: np.ndarray) -> np.ndarray:
     return np.divide(exp_x, np.sum(exp_x, axis=-1, keepdims=True))
 
 
-def graph_message_passing(node_features: np.ndarray,
-                          edge_index: np.ndarray,
-                          edge_weights: np.ndarray,
-                          W_message: np.ndarray,
-                          W_update: np.ndarray) -> np.ndarray:
+def graph_message_passing(
+    node_features: np.ndarray,
+    edge_index: np.ndarray,
+    edge_weights: np.ndarray,
+    W_message: np.ndarray,
+    W_update: np.ndarray,
+) -> np.ndarray:
     """Graph Neural Network message passing layer.
 
     node_features: (num_nodes, feature_dim)
@@ -106,8 +108,9 @@ def graph_message_passing(node_features: np.ndarray,
     return updated
 
 
-def layer_norm_forward(x: np.ndarray, gamma: np.ndarray, beta: np.ndarray,
-                       eps: float = 1e-5) -> np.ndarray:
+def layer_norm_forward(
+    x: np.ndarray, gamma: np.ndarray, beta: np.ndarray, eps: float = 1e-5
+) -> np.ndarray:
     """Layer normalization: y = gamma * (x - mean) / sqrt(var + eps) + beta."""
     mean = np.mean(x, axis=-1, keepdims=True)
     variance = np.var(x, axis=-1, keepdims=True)
@@ -115,16 +118,20 @@ def layer_norm_forward(x: np.ndarray, gamma: np.ndarray, beta: np.ndarray,
     return np.add(np.multiply(normalized, gamma), beta)
 
 
-def batch_norm_forward(x: np.ndarray, gamma: np.ndarray, beta: np.ndarray,
-                       running_mean: np.ndarray, running_var: np.ndarray,
-                       eps: float = 1e-5, momentum: float = 0.1) -> np.ndarray:
+def batch_norm_forward(
+    x: np.ndarray,
+    gamma: np.ndarray,
+    beta: np.ndarray,
+    running_mean: np.ndarray,
+    running_var: np.ndarray,
+    eps: float = 1e-5,
+    momentum: float = 0.1,
+) -> np.ndarray:
     """Batch normalization across batch dimension."""
     mean = np.mean(x, axis=0)
     var = np.var(x, axis=0)
-    running_mean_new = np.add(np.multiply(running_mean, 1 - momentum),
-                              np.multiply(mean, momentum))
-    running_var_new = np.add(np.multiply(running_var, 1 - momentum),
-                             np.multiply(var, momentum))
+    running_mean_new = np.add(np.multiply(running_mean, 1 - momentum), np.multiply(mean, momentum))
+    running_var_new = np.add(np.multiply(running_var, 1 - momentum), np.multiply(var, momentum))
     normalized = np.divide(np.subtract(x, mean), np.sqrt(np.add(var, eps)))
     output = np.add(np.multiply(normalized, gamma), beta)
     return output
@@ -138,8 +145,9 @@ def dropout_forward(x: np.ndarray, rate: float = 0.1) -> tuple:
     return output, mask
 
 
-def residual_block(x: np.ndarray, W1: np.ndarray, b1: np.ndarray,
-                   W2: np.ndarray, b2: np.ndarray) -> np.ndarray:
+def residual_block(
+    x: np.ndarray, W1: np.ndarray, b1: np.ndarray, W2: np.ndarray, b2: np.ndarray
+) -> np.ndarray:
     """Residual connection: output = x + W2 @ relu(W1 @ x + b1) + b2."""
     h = dense_forward(x, W1, b1)
     h = np.maximum(h, 0.0)

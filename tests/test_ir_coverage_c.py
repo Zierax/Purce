@@ -183,18 +183,14 @@ class TestReturnSearch:
 
     def test_return_binop_list_arg_extends(self) -> None:
         _, graph = _build(
-            "def f(a, b, c, d):\n"
-            "    s = np.add(a, b)\n"
-            "    return np.divide([a, b] | c, d)\n"
+            "def f(a, b, c, d):\n    s = np.add(a, b)\n    return np.divide([a, b] | c, d)\n"
         )
         div = next(n for n in graph.nodes.values() if n.algorithm == "element_div")
         assert len(div.inputs) >= 2
 
     def test_return_keyword_constant(self) -> None:
         _, graph = _build(
-            "def f(a, m):\n"
-            "    s = np.add(a, m)\n"
-            "    return np.full(m, fill_value=5.0)\n"
+            "def f(a, m):\n    s = np.add(a, m)\n    return np.full(m, fill_value=5.0)\n"
         )
         assert "alloc_full" in _algos(graph)
         full = next(n for n in graph.nodes.values() if n.algorithm == "alloc_full")
@@ -239,7 +235,13 @@ class TestResolveArgForFullBody:
         builder = MathIRBuilder(origin_file="unit.py")
         expr = ast.parse("x").body[0].value
         result = builder._resolve_arg_for_full_body(
-            expr, [], {}, {}, {}, {"x"}, {},
+            expr,
+            [],
+            {},
+            {},
+            {},
+            {"x"},
+            {},
         )
         assert result == ("x", Dtype.FLOAT64, "array")
 
@@ -247,7 +249,13 @@ class TestResolveArgForFullBody:
         builder = MathIRBuilder(origin_file="unit.py")
         expr = ast.parse("x").body[0].value
         result = builder._resolve_arg_for_full_body(
-            expr, [], {}, {"x": "inter_x"}, {}, set(), {},
+            expr,
+            [],
+            {},
+            {"x": "inter_x"},
+            {},
+            set(),
+            {},
         )
         assert result == ("inter_x", Dtype.FLOAT64, "array")
 
@@ -256,7 +264,13 @@ class TestResolveArgForFullBody:
         expr = ast.parse("two").body[0].value
         scalar_constants = {}
         result = builder._resolve_arg_for_full_body(
-            expr, [], scalar_constants, {}, {}, set(), {"two": 2.0},
+            expr,
+            [],
+            scalar_constants,
+            {},
+            {},
+            set(),
+            {"two": 2.0},
         )
         assert result == ("_const_0", Dtype.FLOAT64, "scalar")
         assert scalar_constants["_const_0"] == 2.0
@@ -265,7 +279,13 @@ class TestResolveArgForFullBody:
         builder = MathIRBuilder(origin_file="unit.py")
         expr = ast.parse("x[i]").body[0].value
         result = builder._resolve_arg_for_full_body(
-            expr, [], {}, {"x": "inter_x"}, {}, set(), {},
+            expr,
+            [],
+            {},
+            {"x": "inter_x"},
+            {},
+            set(),
+            {},
         )
         assert result == ("inter_x", Dtype.FLOAT64, "array")
 
@@ -274,7 +294,13 @@ class TestResolveArgForFullBody:
         expr = ast.parse("-two").body[0].value
         scalar_constants = {}
         result = builder._resolve_arg_for_full_body(
-            expr, [], scalar_constants, {}, {}, set(), {"two": 2.0},
+            expr,
+            [],
+            scalar_constants,
+            {},
+            {},
+            set(),
+            {"two": 2.0},
         )
         assert result == ("_const_0", Dtype.FLOAT64, "scalar")
         assert scalar_constants["_const_0"] == -2.0
@@ -325,7 +351,13 @@ class TestResolveArgForFullBody:
         builder = MathIRBuilder(origin_file="unit.py")
         expr = ast.parse("a.transpose()").body[0].value
         result = builder._resolve_arg_for_full_body(
-            expr, [], {}, {}, {"a": ("a", Dtype.FLOAT64)}, set(), {},
+            expr,
+            [],
+            {},
+            {},
+            {"a": ("a", Dtype.FLOAT64)},
+            set(),
+            {},
         )
         assert result == ("a", Dtype.FLOAT64, "array")
 
@@ -333,7 +365,13 @@ class TestResolveArgForFullBody:
         builder = MathIRBuilder(origin_file="unit.py")
         expr = ast.parse("a.T").body[0].value
         result = builder._resolve_arg_for_full_body(
-            expr, [], {}, {}, {"a": ("a", Dtype.FLOAT64)}, set(), {},
+            expr,
+            [],
+            {},
+            {},
+            {"a": ("a", Dtype.FLOAT64)},
+            set(),
+            {},
         )
         assert result == ("a", Dtype.FLOAT64, "array")
 
@@ -341,7 +379,13 @@ class TestResolveArgForFullBody:
         builder = MathIRBuilder(origin_file="unit.py")
         expr = ast.parse("x.T").body[0].value
         result = builder._resolve_arg_for_full_body(
-            expr, [], {}, {"x": "inter_x"}, {}, set(), {},
+            expr,
+            [],
+            {},
+            {"x": "inter_x"},
+            {},
+            set(),
+            {},
         )
         assert result == ("inter_x", Dtype.FLOAT64, "array")
 
@@ -380,7 +424,13 @@ class TestResolveArgForFullBody:
         builder = MathIRBuilder(origin_file="unit.py")
         expr = ast.parse("-zz").body[0].value
         result = builder._resolve_arg_for_full_body(
-            expr, [], {}, {}, {}, set(), {},
+            expr,
+            [],
+            {},
+            {},
+            {},
+            set(),
+            {},
         )
         assert result[0].startswith("_unresolved_")
 
@@ -395,6 +445,10 @@ class TestResolveArgForFullBody:
             {},
             set(),
             {},
-            "mod", "f", "file", [], [0],
+            "mod",
+            "f",
+            "file",
+            [],
+            [0],
         )
         assert result == ("inter_x", Dtype.FLOAT64, "array")

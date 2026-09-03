@@ -125,7 +125,9 @@ def _snapshot(directory: str) -> dict[str, str]:
 
 
 class TestCLILogging:
-    def test_quiet_suppresses_info(self, runner: CliRunner, fixtures_dir: str, tmp_path: object) -> None:
+    def test_quiet_suppresses_info(
+        self, runner: CliRunner, fixtures_dir: str, tmp_path: object
+    ) -> None:
         _reset_root_logging()
         try:
             out_dir = str(tmp_path / "out")
@@ -167,7 +169,11 @@ class TestCLILogging:
 
 class TestCLIDataAssetsAndVerify:
     def test_data_asset_without_embed_flag_exits(
-        self, runner: CliRunner, fixtures_dir: str, tmp_path: object, monkeypatch: pytest.MonkeyPatch
+        self,
+        runner: CliRunner,
+        fixtures_dir: str,
+        tmp_path: object,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         def fake_slice(self, graph, entry_points) -> SliceResult:
             return SliceResult(graph=graph, data_assets=["module.asset"])
@@ -177,13 +183,18 @@ class TestCLIDataAssetsAndVerify:
         assert result.exit_code == 1
         assert "data assets found but --embed-assets not set" in result.output
 
-    def test_verify_z3_not_available(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_verify_z3_not_available(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(cli_mod.Z3Verifier, "available", False)
 
         def fake_fuzz_all(self, iterations: int = 1000) -> dict:
             return {
                 "matmul": FuzzResult(
-                    operation="matmul", iterations=iterations, passed=iterations, failed=0,
+                    operation="matmul",
+                    iterations=iterations,
+                    passed=iterations,
+                    failed=0,
                     tested_c=True,
                 )
             }
@@ -196,13 +207,20 @@ class TestCLIDataAssetsAndVerify:
         # Without Z3 the verification suite cannot run at all, so the command
         # must fail loudly rather than silently skipping the Z3 phase.
         assert result.exit_code == 1
-        assert "Z3 solver: not available (install z3-solver); verification cannot run" in result.output
+        assert (
+            "Z3 solver: not available (install z3-solver); verification cannot run" in result.output
+        )
 
-    def test_verify_failure_exit_code(self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_verify_failure_exit_code(
+        self, runner: CliRunner, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         def fake_fuzz_all(self, iterations: int = 1000) -> dict:
             return {
                 "matmul": FuzzResult(
-                    operation="matmul", iterations=iterations, passed=iterations - 1, failed=1,
+                    operation="matmul",
+                    iterations=iterations,
+                    passed=iterations - 1,
+                    failed=1,
                     tested_c=True,
                 )
             }
@@ -257,12 +275,7 @@ class TestParserDiagnostics:
 
     def test_eval_is_unsupported_and_dropped(self) -> None:
         p = PythonParser()
-        source = (
-            "import numpy as np\n"
-            "def dyn(x):\n"
-            "    y = np.add(x, 1.0)\n"
-            "    return eval('y')\n"
-        )
+        source = "import numpy as np\ndef dyn(x):\n    y = np.add(x, 1.0)\n    return eval('y')\n"
         res = p.parse_source(source, "e.py")
         assert res.functions == []
         assert [d.construct for d in res.diagnostics] == ["eval"]
@@ -282,12 +295,7 @@ class TestParserDiagnostics:
 
     def test_non_call_func_target_skipped(self) -> None:
         p = PythonParser()
-        source = (
-            "import numpy as np\n"
-            "def h(a, b):\n"
-            "    y = np.add(a, b)\n"
-            "    return y[0](0.5)\n"
-        )
+        source = "import numpy as np\ndef h(a, b):\n    y = np.add(a, b)\n    return y[0](0.5)\n"
         res = p.parse_source(source, "t.py")
         assert len(res.functions) == 1
         assert res.functions[0].algorithm == "element_add"
@@ -521,7 +529,9 @@ class TestDeterministicOrdering:
         c_files = sorted(Path(out).rglob("*.c"))
         lines = []
         for cf in c_files:
-            m = re.search(r"^ \* ORIGIN FILE:.*:(\d+)$", cf.read_text(encoding="utf-8"), re.MULTILINE)
+            m = re.search(
+                r"^ \* ORIGIN FILE:.*:(\d+)$", cf.read_text(encoding="utf-8"), re.MULTILINE
+            )
             lines.append((cf.name, int(m.group(1)) if m else -1))
         lines.sort(key=lambda t: t[1])
         assert lines[0][1] < lines[1][1]

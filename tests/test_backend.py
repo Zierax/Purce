@@ -26,7 +26,11 @@ def _make_matmul_node() -> MathIRNode:
         effects=[Effect.PURE],
         algorithm="matmul",
         reductions=[
-            ReductionEntry(rule="numpy_op_extraction", description="Extracted numpy.matmul as matmul kernel", original="numpy.matmul"),
+            ReductionEntry(
+                rule="numpy_op_extraction",
+                description="Extracted numpy.matmul as matmul kernel",
+                original="numpy.matmul",
+            ),
         ],
         stack_usage=512,
         heap_usage=None,
@@ -212,8 +216,8 @@ class TestC99GeneratorAlgorithms:
         c_files = [f for f in result.files if f.file_type == "c"]
         content = c_files[0].content
         assert "Matrix multiplication" in content
-        assert re.search(r'\bfor\s*\(', content), "matmul should contain for loops"
-        assert re.search(r'\bvoid\s+\w+\s*\(', content), "matmul should have a function signature"
+        assert re.search(r"\bfor\s*\(", content), "matmul should contain for loops"
+        assert re.search(r"\bvoid\s+\w+\s*\(", content), "matmul should have a function signature"
 
     def test_element_add_body(self) -> None:
         gen = C99Generator()
@@ -222,8 +226,10 @@ class TestC99GeneratorAlgorithms:
         c_files = [f for f in result.files if f.file_type == "c"]
         content = c_files[0].content
         assert "Element-wise addition" in content
-        assert re.search(r'\bfor\s*\(', content), "element_add should contain a for loop"
-        assert re.search(r'\bvoid\s+\w+\s*\(', content), "element_add should have a function signature"
+        assert re.search(r"\bfor\s*\(", content), "element_add should contain a for loop"
+        assert re.search(r"\bvoid\s+\w+\s*\(", content), (
+            "element_add should have a function signature"
+        )
 
     def test_reduce_sum_body(self) -> None:
         gen = C99Generator()
@@ -232,8 +238,10 @@ class TestC99GeneratorAlgorithms:
         c_files = [f for f in result.files if f.file_type == "c"]
         content = c_files[0].content
         assert "Reduction sum" in content
-        assert re.search(r'\bfor\s*\(', content), "reduce_sum should contain a for loop"
-        assert re.search(r'\bvoid\s+\w+\s*\(', content), "reduce_sum should have a function signature"
+        assert re.search(r"\bfor\s*\(", content), "reduce_sum should contain a for loop"
+        assert re.search(r"\bvoid\s+\w+\s*\(", content), (
+            "reduce_sum should have a function signature"
+        )
 
 
 class TestC99GeneratorScalarParams:
@@ -267,18 +275,21 @@ class TestC99GeneratorScalarParams:
 
     def test_none_shape_input_is_scalar_param_and_not_subscripted(self) -> None:
         content = self._render(self._mul_node(None))
-        assert re.search(r'\bvoid\s+\w+\(int\s+n,\s*const\s+double\s*\*\s*restrict\s+A,\s*double\s+B,\s*double\s*\*\s*restrict\s+C\)', content), content
-        assert re.search(r'C\[i\] = A\[i\] \* B;', content), content
+        assert re.search(
+            r"\bvoid\s+\w+\(int\s+n,\s*const\s+double\s*\*\s*restrict\s+A,\s*double\s+B,\s*double\s*\*\s*restrict\s+C\)",
+            content,
+        ), content
+        assert re.search(r"C\[i\] = A\[i\] \* B;", content), content
         assert "B[i]" not in content
 
     def test_tuple_shape_input_is_pointer_and_stays_subscripted(self) -> None:
         content = self._render(self._mul_node("(m,n)"))
-        assert re.search(r'\bconst\s+double\s*\*\s*restrict\s+B\b', content), content
+        assert re.search(r"\bconst\s+double\s*\*\s*restrict\s+B\b", content), content
         assert "B[i]" in content
 
     def test_scalar_shape_input_is_scalar_param(self) -> None:
         content = self._render(self._mul_node("scalar"))
-        assert re.search(r'\bdouble\s+B\b', content), content
+        assert re.search(r"\bdouble\s+B\b", content), content
         assert "B[i]" not in content
 
 
@@ -320,18 +331,33 @@ class TestC99GeneratorEdgeCases:
     def test_topological_order_in_output(self) -> None:
         gen = C99Generator()
         n1 = MathIRNode(
-            node_id="a", origin_symbol="mod.a", origin_file="t.py",
-            origin_line=1, origin_commit=None, origin_signature="double -> double",
-            math_intent="a", inputs=[("x", Dtype.FLOAT64, "scalar")],
-            outputs=[("r", Dtype.FLOAT64, "scalar")], effects=[Effect.PURE],
-            algorithm="element_add", stack_usage=32,
+            node_id="a",
+            origin_symbol="mod.a",
+            origin_file="t.py",
+            origin_line=1,
+            origin_commit=None,
+            origin_signature="double -> double",
+            math_intent="a",
+            inputs=[("x", Dtype.FLOAT64, "scalar")],
+            outputs=[("r", Dtype.FLOAT64, "scalar")],
+            effects=[Effect.PURE],
+            algorithm="element_add",
+            stack_usage=32,
         )
         n2 = MathIRNode(
-            node_id="b", origin_symbol="mod.b", origin_file="t.py",
-            origin_line=5, origin_commit=None, origin_signature="double -> double",
-            math_intent="b", inputs=[("x", Dtype.FLOAT64, "scalar")],
-            outputs=[("r", Dtype.FLOAT64, "scalar")], effects=[Effect.PURE],
-            algorithm="reduce_sum", stack_usage=32, nested_deps=["a"],
+            node_id="b",
+            origin_symbol="mod.b",
+            origin_file="t.py",
+            origin_line=5,
+            origin_commit=None,
+            origin_signature="double -> double",
+            math_intent="b",
+            inputs=[("x", Dtype.FLOAT64, "scalar")],
+            outputs=[("r", Dtype.FLOAT64, "scalar")],
+            effects=[Effect.PURE],
+            algorithm="reduce_sum",
+            stack_usage=32,
+            nested_deps=["a"],
         )
         g = MathIRGraph()
         g.add_node(n1)

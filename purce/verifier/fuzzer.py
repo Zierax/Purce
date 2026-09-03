@@ -3,6 +3,7 @@
 When c_kernel_caller is provided, actually compiles and invokes C99 code,
 comparing C output against Python reference. This is the real verification.
 """
+
 from __future__ import annotations
 
 import math
@@ -54,7 +55,9 @@ class DifferentialFuzzer:
             _random.seed(seed)
 
     @classmethod
-    def with_c_backend(cls, rtol: float = 1e-5, atol: float = 1e-8, seed: int | None = None) -> tuple["DifferentialFuzzer", CompiledKernels]:
+    def with_c_backend(
+        cls, rtol: float = 1e-5, atol: float = 1e-8, seed: int | None = None
+    ) -> tuple["DifferentialFuzzer", CompiledKernels]:
         """Create fuzzer with compiled C backend. Returns (fuzzer, compiled_handle).
 
         Caller must call compiled_handle.close() when done.
@@ -68,100 +71,190 @@ class DifferentialFuzzer:
         return self._fuzz_matmul_op("matmul", self._matmul_python, iterations)
 
     def fuzz_element_add(self, iterations: int = 1000) -> FuzzResult:
-        return self._fuzz_binary_op("element_add", self._element_add_python, iterations,
-                                    c_fn=self._c.element_add if self._c else None)
+        return self._fuzz_binary_op(
+            "element_add",
+            self._element_add_python,
+            iterations,
+            c_fn=self._c.element_add if self._c else None,
+        )
 
     def fuzz_element_sub(self, iterations: int = 1000) -> FuzzResult:
-        return self._fuzz_binary_op("element_sub", self._element_sub_python, iterations,
-                                    c_fn=self._c.element_sub if self._c else None)
+        return self._fuzz_binary_op(
+            "element_sub",
+            self._element_sub_python,
+            iterations,
+            c_fn=self._c.element_sub if self._c else None,
+        )
 
     def fuzz_element_mul(self, iterations: int = 1000) -> FuzzResult:
-        return self._fuzz_binary_op("element_mul", self._element_mul_python, iterations,
-                                    c_fn=self._c.element_mul if self._c else None)
+        return self._fuzz_binary_op(
+            "element_mul",
+            self._element_mul_python,
+            iterations,
+            c_fn=self._c.element_mul if self._c else None,
+        )
 
     def fuzz_element_div(self, iterations: int = 1000) -> FuzzResult:
-        return self._fuzz_binary_op("element_div", self._element_div_python, iterations,
-                                    c_fn=self._c.element_div if self._c else None)
+        return self._fuzz_binary_op(
+            "element_div",
+            self._element_div_python,
+            iterations,
+            c_fn=self._c.element_div if self._c else None,
+        )
 
     def fuzz_reduce_sum(self, iterations: int = 1000) -> FuzzResult:
-        return self._fuzz_reduce_op("reduce_sum", self._reduce_sum_python, iterations,
-                                    c_fn=self._c.reduce_sum if self._c else None)
+        return self._fuzz_reduce_op(
+            "reduce_sum",
+            self._reduce_sum_python,
+            iterations,
+            c_fn=self._c.reduce_sum if self._c else None,
+        )
 
     def fuzz_reduce_mean(self, iterations: int = 1000) -> FuzzResult:
-        return self._fuzz_reduce_op("reduce_mean", self._reduce_mean_python, iterations,
-                                    c_fn=self._c.reduce_mean if self._c else None)
+        return self._fuzz_reduce_op(
+            "reduce_mean",
+            self._reduce_mean_python,
+            iterations,
+            c_fn=self._c.reduce_mean if self._c else None,
+        )
 
     def fuzz_reduce_max(self, iterations: int = 1000) -> FuzzResult:
-        return self._fuzz_reduce_op("reduce_max", self._reduce_max_python, iterations,
-                                    c_fn=self._c.reduce_max if self._c else None)
+        return self._fuzz_reduce_op(
+            "reduce_max",
+            self._reduce_max_python,
+            iterations,
+            c_fn=self._c.reduce_max if self._c else None,
+        )
 
     def fuzz_reduce_min(self, iterations: int = 1000) -> FuzzResult:
-        return self._fuzz_reduce_op("reduce_min", self._reduce_min_python, iterations,
-                                    c_fn=self._c.reduce_min if self._c else None)
+        return self._fuzz_reduce_op(
+            "reduce_min",
+            self._reduce_min_python,
+            iterations,
+            c_fn=self._c.reduce_min if self._c else None,
+        )
 
     def fuzz_linalg_solve(self, iterations: int = 200) -> FuzzResult:
-        return self._fuzz_linalg_op("linalg_solve", self._linalg_solve_python, iterations,
-                                    c_fn=self._c.linalg_solve if self._c else None)
+        return self._fuzz_linalg_op(
+            "linalg_solve",
+            self._linalg_solve_python,
+            iterations,
+            c_fn=self._c.linalg_solve if self._c else None,
+        )
 
     def fuzz_linalg_inv(self, iterations: int = 200) -> FuzzResult:
-        return self._fuzz_linalg_op("linalg_inv", self._linalg_inv_python, iterations,
-                                    c_fn=self._c.linalg_inv if self._c else None)
+        return self._fuzz_linalg_op(
+            "linalg_inv",
+            self._linalg_inv_python,
+            iterations,
+            c_fn=self._c.linalg_inv if self._c else None,
+        )
 
     def fuzz_linalg_cholesky(self, iterations: int = 200) -> FuzzResult:
-        return self._fuzz_linalg_op("linalg_cholesky", self._linalg_cholesky_python, iterations,
-                                    c_fn=self._c.linalg_cholesky if self._c else None)
+        return self._fuzz_linalg_op(
+            "linalg_cholesky",
+            self._linalg_cholesky_python,
+            iterations,
+            c_fn=self._c.linalg_cholesky if self._c else None,
+        )
 
     def fuzz_linalg_eig(self, iterations: int = 200) -> FuzzResult:
-        return self._fuzz_linalg_op("linalg_eig", self._linalg_eig_python, iterations,
-                                    c_fn=self._c.linalg_eig if self._c else None)
+        return self._fuzz_linalg_op(
+            "linalg_eig",
+            self._linalg_eig_python,
+            iterations,
+            c_fn=self._c.linalg_eig if self._c else None,
+        )
 
     def fuzz_fft(self, iterations: int = 500) -> FuzzResult:
-        return self._fuzz_fft_op("fft", self._fft_python, iterations,
-                                 c_fn=self._c.fft if self._c else None)
+        return self._fuzz_fft_op(
+            "fft", self._fft_python, iterations, c_fn=self._c.fft if self._c else None
+        )
 
     def fuzz_ifft(self, iterations: int = 500) -> FuzzResult:
-        return self._fuzz_fft_op("ifft", self._ifft_python, iterations,
-                                 c_fn=self._c.ifft if self._c else None)
+        return self._fuzz_fft_op(
+            "ifft", self._ifft_python, iterations, c_fn=self._c.ifft if self._c else None
+        )
 
     def fuzz_element_tan(self, iterations: int = 1000) -> FuzzResult:
-        return self._fuzz_elementwise_unary("element_tan", self._element_tan_python, iterations,
-                                            c_fn=self._c.element_tan if self._c else None)
+        return self._fuzz_elementwise_unary(
+            "element_tan",
+            self._element_tan_python,
+            iterations,
+            c_fn=self._c.element_tan if self._c else None,
+        )
 
     def fuzz_element_sqrt(self, iterations: int = 1000) -> FuzzResult:
-        return self._fuzz_elementwise_unary("element_sqrt", self._element_sqrt_python, iterations,
-                                            c_fn=self._c.element_sqrt if self._c else None)
+        return self._fuzz_elementwise_unary(
+            "element_sqrt",
+            self._element_sqrt_python,
+            iterations,
+            c_fn=self._c.element_sqrt if self._c else None,
+        )
 
     def fuzz_element_exp(self, iterations: int = 1000) -> FuzzResult:
-        return self._fuzz_elementwise_unary("element_exp", self._element_exp_python, iterations,
-                                            c_fn=self._c.element_exp if self._c else None)
+        return self._fuzz_elementwise_unary(
+            "element_exp",
+            self._element_exp_python,
+            iterations,
+            c_fn=self._c.element_exp if self._c else None,
+        )
 
     def fuzz_element_log(self, iterations: int = 1000) -> FuzzResult:
-        return self._fuzz_elementwise_unary("element_log", self._element_log_python, iterations,
-                                            c_fn=self._c.element_log if self._c else None)
+        return self._fuzz_elementwise_unary(
+            "element_log",
+            self._element_log_python,
+            iterations,
+            c_fn=self._c.element_log if self._c else None,
+        )
 
     def fuzz_element_sin(self, iterations: int = 1000) -> FuzzResult:
-        return self._fuzz_elementwise_unary("element_sin", self._element_sin_python, iterations,
-                                            c_fn=self._c.element_sin if self._c else None)
+        return self._fuzz_elementwise_unary(
+            "element_sin",
+            self._element_sin_python,
+            iterations,
+            c_fn=self._c.element_sin if self._c else None,
+        )
 
     def fuzz_element_cos(self, iterations: int = 1000) -> FuzzResult:
-        return self._fuzz_elementwise_unary("element_cos", self._element_cos_python, iterations,
-                                            c_fn=self._c.element_cos if self._c else None)
+        return self._fuzz_elementwise_unary(
+            "element_cos",
+            self._element_cos_python,
+            iterations,
+            c_fn=self._c.element_cos if self._c else None,
+        )
 
     def fuzz_element_abs(self, iterations: int = 1000) -> FuzzResult:
-        return self._fuzz_elementwise_unary("element_abs", self._element_abs_python, iterations,
-                                            c_fn=self._c.element_abs if self._c else None)
+        return self._fuzz_elementwise_unary(
+            "element_abs",
+            self._element_abs_python,
+            iterations,
+            c_fn=self._c.element_abs if self._c else None,
+        )
 
     def fuzz_alloc_zeros(self, iterations: int = 500) -> FuzzResult:
-        return self._fuzz_alloc_op("alloc_zeros", self._alloc_zeros_python, iterations,
-                                   c_fn=self._c.alloc_zeros if self._c else None)
+        return self._fuzz_alloc_op(
+            "alloc_zeros",
+            self._alloc_zeros_python,
+            iterations,
+            c_fn=self._c.alloc_zeros if self._c else None,
+        )
 
     def fuzz_alloc_ones(self, iterations: int = 500) -> FuzzResult:
-        return self._fuzz_alloc_op("alloc_ones", self._alloc_ones_python, iterations,
-                                   c_fn=self._c.alloc_ones if self._c else None)
+        return self._fuzz_alloc_op(
+            "alloc_ones",
+            self._alloc_ones_python,
+            iterations,
+            c_fn=self._c.alloc_ones if self._c else None,
+        )
 
     def fuzz_alloc_eye(self, iterations: int = 500) -> FuzzResult:
-        return self._fuzz_alloc_op("alloc_eye", self._alloc_eye_python, iterations,
-                                   c_fn=self._c.alloc_eye if self._c else None)
+        return self._fuzz_alloc_op(
+            "alloc_eye",
+            self._alloc_eye_python,
+            iterations,
+            c_fn=self._c.alloc_eye if self._c else None,
+        )
 
     def fuzz_all(self, iterations: int = 1000) -> dict[str, FuzzResult]:
         results = {}
@@ -196,7 +289,10 @@ class DifferentialFuzzer:
     # ── Core fuzzing methods ──
 
     def _fuzz_matmul_op(
-        self, name: str, python_fn: Callable, iterations: int,
+        self,
+        name: str,
+        python_fn: Callable,
+        iterations: int,
     ) -> FuzzResult:
         passed = 0
         failed = 0
@@ -219,26 +315,38 @@ class DifferentialFuzzer:
                     passed += 1
                 else:
                     failed += 1
-                    failures.append({
-                        "m": m, "k": k, "p": p,
-                        "expected": expected[:4],
-                        "actual": actual[:4],
-                        "max_error": max_err,
-                    })
+                    failures.append(
+                        {
+                            "m": m,
+                            "k": k,
+                            "p": p,
+                            "expected": expected[:4],
+                            "actual": actual[:4],
+                            "max_error": max_err,
+                        }
+                    )
             except Exception as e:
                 failed += 1
                 failures.append({"error": str(e)})
 
         return FuzzResult(
-            operation=name, iterations=iterations, passed=passed, failed=failed,
-            failures=failures[:10], rtol=self.rtol, atol=self.atol,
+            operation=name,
+            iterations=iterations,
+            passed=passed,
+            failed=failed,
+            failures=failures[:10],
+            rtol=self.rtol,
+            atol=self.atol,
             tested_c=self._c is not None,
             max_error=max(errors) if errors else 0.0,
             mean_error=sum(errors) / len(errors) if errors else 0.0,
         )
 
     def _fuzz_binary_op(
-        self, name: str, python_fn: Callable, iterations: int,
+        self,
+        name: str,
+        python_fn: Callable,
+        iterations: int,
         c_fn: Callable | None = None,
     ) -> FuzzResult:
         passed = 0
@@ -262,27 +370,37 @@ class DifferentialFuzzer:
                     passed += 1
                 else:
                     failed += 1
-                    failures.append({
-                        "input_a": a[:4],
-                        "input_b": b[:4],
-                        "expected": expected[:4],
-                        "actual": actual[:4],
-                        "max_error": max_err,
-                    })
+                    failures.append(
+                        {
+                            "input_a": a[:4],
+                            "input_b": b[:4],
+                            "expected": expected[:4],
+                            "actual": actual[:4],
+                            "max_error": max_err,
+                        }
+                    )
             except (ValueError, TypeError, ZeroDivisionError, IndexError, OverflowError) as e:
                 failed += 1
                 failures.append({"error": str(e)})
 
         return FuzzResult(
-            operation=name, iterations=iterations, passed=passed, failed=failed,
-            failures=failures[:10], rtol=self.rtol, atol=self.atol,
+            operation=name,
+            iterations=iterations,
+            passed=passed,
+            failed=failed,
+            failures=failures[:10],
+            rtol=self.rtol,
+            atol=self.atol,
             tested_c=c_fn is not None,
             max_error=max(errors) if errors else 0.0,
             mean_error=sum(errors) / len(errors) if errors else 0.0,
         )
 
     def _fuzz_reduce_op(
-        self, name: str, python_fn: Callable, iterations: int,
+        self,
+        name: str,
+        python_fn: Callable,
+        iterations: int,
         c_fn: Callable | None = None,
     ) -> FuzzResult:
         passed = 0
@@ -307,26 +425,36 @@ class DifferentialFuzzer:
                     passed += 1
                 else:
                     failed += 1
-                    failures.append({
-                        "input": x[:4],
-                        "expected": expected,
-                        "actual": actual,
-                        "error": err,
-                    })
+                    failures.append(
+                        {
+                            "input": x[:4],
+                            "expected": expected,
+                            "actual": actual,
+                            "error": err,
+                        }
+                    )
             except (ValueError, TypeError, ZeroDivisionError, IndexError, OverflowError) as e:
                 failed += 1
                 failures.append({"error": str(e)})
 
         return FuzzResult(
-            operation=name, iterations=iterations, passed=passed, failed=failed,
-            failures=failures[:10], rtol=self.rtol, atol=self.atol,
+            operation=name,
+            iterations=iterations,
+            passed=passed,
+            failed=failed,
+            failures=failures[:10],
+            rtol=self.rtol,
+            atol=self.atol,
             tested_c=c_fn is not None,
             max_error=max(errors) if errors else 0.0,
             mean_error=sum(errors) / len(errors) if errors else 0.0,
         )
 
     def _fuzz_linalg_op(
-        self, name: str, python_fn: Callable, iterations: int,
+        self,
+        name: str,
+        python_fn: Callable,
+        iterations: int,
         c_fn: Callable | None = None,
     ) -> FuzzResult:
         passed = 0
@@ -360,25 +488,35 @@ class DifferentialFuzzer:
                     passed += 1
                 else:
                     failed += 1
-                    failures.append({
-                        "expected": expected[:4],
-                        "actual": actual[:4],
-                        "max_error": max_err,
-                    })
+                    failures.append(
+                        {
+                            "expected": expected[:4],
+                            "actual": actual[:4],
+                            "max_error": max_err,
+                        }
+                    )
             except (ValueError, TypeError, ZeroDivisionError, IndexError, OverflowError) as e:
                 failed += 1
                 failures.append({"error": str(e)})
 
         return FuzzResult(
-            operation=name, iterations=iterations, passed=passed, failed=failed,
-            failures=failures[:10], rtol=rtol, atol=atol,
+            operation=name,
+            iterations=iterations,
+            passed=passed,
+            failed=failed,
+            failures=failures[:10],
+            rtol=rtol,
+            atol=atol,
             tested_c=c_fn is not None,
             max_error=max(errors) if errors else 0.0,
             mean_error=sum(errors) / len(errors) if errors else 0.0,
         )
 
     def _fuzz_fft_op(
-        self, name: str, python_fn: Callable, iterations: int,
+        self,
+        name: str,
+        python_fn: Callable,
+        iterations: int,
         c_fn: Callable | None = None,
     ) -> FuzzResult:
         passed = 0
@@ -390,7 +528,7 @@ class DifferentialFuzzer:
 
         for _ in range(iterations):
             exp = _random_int(1, 8)
-            n = 2 ** exp
+            n = 2**exp
             real = [_random_float(-10.0, 10.0) for _ in range(n)]
             imag = [_random_float(-10.0, 10.0) for _ in range(n)]
 
@@ -411,26 +549,36 @@ class DifferentialFuzzer:
                     passed += 1
                 else:
                     failed += 1
-                    failures.append({
-                        "expected_re": exp_r[:4],
-                        "actual_re": act_r[:4],
-                        "max_error_re": err_re,
-                        "max_error_im": err_im,
-                    })
+                    failures.append(
+                        {
+                            "expected_re": exp_r[:4],
+                            "actual_re": act_r[:4],
+                            "max_error_re": err_re,
+                            "max_error_im": err_im,
+                        }
+                    )
             except (ValueError, TypeError, ZeroDivisionError, IndexError, OverflowError) as e:
                 failed += 1
                 failures.append({"error": str(e)})
 
         return FuzzResult(
-            operation=name, iterations=iterations, passed=passed, failed=failed,
-            failures=failures[:10], rtol=rtol, atol=atol,
+            operation=name,
+            iterations=iterations,
+            passed=passed,
+            failed=failed,
+            failures=failures[:10],
+            rtol=rtol,
+            atol=atol,
             tested_c=c_fn is not None,
             max_error=max(errors) if errors else 0.0,
             mean_error=sum(errors) / len(errors) if errors else 0.0,
         )
 
     def _fuzz_elementwise_unary(
-        self, name: str, python_fn: Callable, iterations: int,
+        self,
+        name: str,
+        python_fn: Callable,
+        iterations: int,
         c_fn: Callable | None = None,
     ) -> FuzzResult:
         passed = 0
@@ -455,26 +603,36 @@ class DifferentialFuzzer:
                     passed += 1
                 else:
                     failed += 1
-                    failures.append({
-                        "input": x[:4],
-                        "expected": expected[:4],
-                        "actual": actual[:4],
-                        "max_error": max_err,
-                    })
+                    failures.append(
+                        {
+                            "input": x[:4],
+                            "expected": expected[:4],
+                            "actual": actual[:4],
+                            "max_error": max_err,
+                        }
+                    )
             except (ValueError, TypeError, ZeroDivisionError, IndexError, OverflowError) as e:
                 failed += 1
                 failures.append({"error": str(e)})
 
         return FuzzResult(
-            operation=name, iterations=iterations, passed=passed, failed=failed,
-            failures=failures[:10], rtol=self.rtol, atol=self.atol,
+            operation=name,
+            iterations=iterations,
+            passed=passed,
+            failed=failed,
+            failures=failures[:10],
+            rtol=self.rtol,
+            atol=self.atol,
             tested_c=c_fn is not None,
             max_error=max(errors) if errors else 0.0,
             mean_error=sum(errors) / len(errors) if errors else 0.0,
         )
 
     def _fuzz_alloc_op(
-        self, name: str, python_fn: Callable, iterations: int,
+        self,
+        name: str,
+        python_fn: Callable,
+        iterations: int,
         c_fn: Callable | None = None,
     ) -> FuzzResult:
         passed = 0
@@ -498,19 +656,26 @@ class DifferentialFuzzer:
                     passed += 1
                 else:
                     failed += 1
-                    failures.append({
-                        "n": n,
-                        "expected": expected[:4],
-                        "actual": actual[:4],
-                        "max_error": max_err,
-                    })
+                    failures.append(
+                        {
+                            "n": n,
+                            "expected": expected[:4],
+                            "actual": actual[:4],
+                            "max_error": max_err,
+                        }
+                    )
             except (ValueError, TypeError, IndexError, OverflowError) as e:
                 failed += 1
                 failures.append({"error": str(e)})
 
         return FuzzResult(
-            operation=name, iterations=iterations, passed=passed, failed=failed,
-            failures=failures[:10], rtol=self.rtol, atol=self.atol,
+            operation=name,
+            iterations=iterations,
+            passed=passed,
+            failed=failed,
+            failures=failures[:10],
+            rtol=self.rtol,
+            atol=self.atol,
             tested_c=c_fn is not None,
             max_error=max(errors) if errors else 0.0,
             mean_error=sum(errors) / len(errors) if errors else 0.0,
@@ -519,7 +684,9 @@ class DifferentialFuzzer:
     # ── Python reference implementations ──
 
     @staticmethod
-    def _matmul_python(iteration: bool = True) -> tuple[list[float], list[float], list[float], int, int, int]:
+    def _matmul_python(
+        iteration: bool = True,
+    ) -> tuple[list[float], list[float], list[float], int, int, int]:
         m = _random_int(1, 16)
         k = _random_int(1, 16)
         p = _random_int(1, 16)
@@ -651,6 +818,7 @@ class DifferentialFuzzer:
     @staticmethod
     def _linalg_eig_python(A, b, n):
         import numpy as np
+
         Asym = [[0.5 * (A[i][j] + A[j][i]) for j in range(n)] for i in range(n)]
         w = np.linalg.eigvalsh(Asym)
         return sorted(w.tolist())

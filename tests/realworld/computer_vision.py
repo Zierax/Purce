@@ -48,10 +48,16 @@ def bilinear_interpolate(feature_map, x, y):
     dx = np.subtract(x, x0)
     dy = np.subtract(y, y0)
     val = np.add(
-        np.add(np.multiply(np.multiply(np.subtract(1.0, dx), np.subtract(1.0, dy)), feature_map[x0, y0]),
-               np.multiply(np.multiply(dx, np.subtract(1.0, dy)), feature_map[x1, y0])),
-        np.add(np.multiply(np.multiply(np.subtract(1.0, dx), dy), feature_map[x0, y1]),
-               np.multiply(np.multiply(dx, dy), feature_map[x1, y1]))
+        np.add(
+            np.multiply(
+                np.multiply(np.subtract(1.0, dx), np.subtract(1.0, dy)), feature_map[x0, y0]
+            ),
+            np.multiply(np.multiply(dx, np.subtract(1.0, dy)), feature_map[x1, y0]),
+        ),
+        np.add(
+            np.multiply(np.multiply(np.subtract(1.0, dx), dy), feature_map[x0, y1]),
+            np.multiply(np.multiply(dx, dy), feature_map[x1, y1]),
+        ),
     )
     return val
 

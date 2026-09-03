@@ -56,7 +56,14 @@ BODY_PARAM_MAP: dict[str, list[tuple[str, str]]] = {
     "reduce_mean": [("x", "input_0"), ("n", "length"), ("result_ptr", "output_0")],
     "reduce_max": [("x", "input_0"), ("n", "length"), ("result_ptr", "output_0")],
     "reduce_min": [("x", "input_0"), ("n", "length"), ("result_ptr", "output_0")],
-    "matmul": [("A", "input_0"), ("B", "input_1"), ("C", "output_0"), ("m", "dim_m"), ("n", "dim_n"), ("p", "dim_k")],
+    "matmul": [
+        ("A", "input_0"),
+        ("B", "input_1"),
+        ("C", "output_0"),
+        ("m", "dim_m"),
+        ("n", "dim_n"),
+        ("p", "dim_k"),
+    ],
     "linalg_solve": [("A", "input_0"), ("b", "input_1"), ("x", "output_0"), ("n", "dim")],
     "linalg_inv": [("A", "input_0"), ("inv", "output_0"), ("n", "dim")],
     "linalg_cholesky": [("A", "input_0"), ("L", "output_0"), ("n", "dim")],
@@ -80,8 +87,20 @@ BODY_PARAM_MAP: dict[str, list[tuple[str, str]]] = {
     "element_max": [("A", "input_0"), ("B", "input_1"), ("C", "output_0"), ("n", "length")],
     "element_min": [("A", "input_0"), ("B", "input_1"), ("C", "output_0"), ("n", "length")],
     "element_power": [("A", "input_0"), ("B", "input_1"), ("C", "output_0"), ("n", "length")],
-    "element_where": [("cond", "input_0"), ("A", "input_1"), ("B", "input_2"), ("C", "output_0"), ("n", "length")],
-    "element_clip": [("x", "input_0"), ("lo", "input_1"), ("hi", "input_2"), ("out", "output_0"), ("n", "length")],
+    "element_where": [
+        ("cond", "input_0"),
+        ("A", "input_1"),
+        ("B", "input_2"),
+        ("C", "output_0"),
+        ("n", "length"),
+    ],
+    "element_clip": [
+        ("x", "input_0"),
+        ("lo", "input_1"),
+        ("hi", "input_2"),
+        ("out", "output_0"),
+        ("n", "length"),
+    ],
     "element_neg": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
     "element_sign": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
     "element_floor": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
@@ -95,13 +114,31 @@ BODY_PARAM_MAP: dict[str, list[tuple[str, str]]] = {
     "element_imag": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
     "element_copy": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
     "transpose": [("x", "input_0"), ("out", "output_0"), ("rows", "dim_m"), ("cols", "dim_n")],
-    "outer_product": [("A", "input_0"), ("B", "input_1"), ("C", "output_0"), ("m", "dim_m"), ("n", "dim_n")],
+    "outer_product": [
+        ("A", "input_0"),
+        ("B", "input_1"),
+        ("C", "output_0"),
+        ("m", "dim_m"),
+        ("n", "dim_n"),
+    ],
     "matrix_diag": [("x", "input_0"), ("out", "output_0"), ("n", "dim")],
     "matrix_diag_from": [("x", "input_0"), ("out", "output_0"), ("n", "dim")],
     "matrix_tril": [("x", "input_0"), ("out", "output_0"), ("n", "dim")],
     "matrix_triu": [("x", "input_0"), ("out", "output_0"), ("n", "dim")],
-    "array_concat": [("A", "input_0"), ("B", "input_1"), ("C", "output_0"), ("n_a", "dim_m"), ("n_b", "dim_n")],
-    "array_take": [("x", "input_0"), ("idx", "input_1"), ("out", "output_0"), ("n", "input_0_len"), ("k", "input_1_len")],
+    "array_concat": [
+        ("A", "input_0"),
+        ("B", "input_1"),
+        ("C", "output_0"),
+        ("n_a", "dim_m"),
+        ("n_b", "dim_n"),
+    ],
+    "array_take": [
+        ("x", "input_0"),
+        ("idx", "input_1"),
+        ("out", "output_0"),
+        ("n", "input_0_len"),
+        ("k", "input_1_len"),
+    ],
     "array_argsort": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
     "array_permutation": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
     "array_literal": [("out", "output_0"), ("x", "input_0"), ("n", "length")],
@@ -110,13 +147,33 @@ BODY_PARAM_MAP: dict[str, list[tuple[str, str]]] = {
     "array_expand_dims": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
     "array_flatten": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
     "noop_seed": [("seed", "input_0")],
-    "fft": [("real", "input_0"), ("imag", "input_1"), ("out_real", "output_0"), ("out_imag", "output_1"), ("n", "length"), ("log_n", "log_length")],
-    "ifft": [("real", "input_0"), ("imag", "input_1"), ("out_real", "output_0"), ("out_imag", "output_1"), ("n", "length"), ("log_n", "log_length")],
+    "fft": [
+        ("real", "input_0"),
+        ("imag", "input_1"),
+        ("out_real", "output_0"),
+        ("out_imag", "output_1"),
+        ("n", "length"),
+        ("log_n", "log_length"),
+    ],
+    "ifft": [
+        ("real", "input_0"),
+        ("imag", "input_1"),
+        ("out_real", "output_0"),
+        ("out_imag", "output_1"),
+        ("n", "length"),
+        ("log_n", "log_length"),
+    ],
     "reduce_var": [("x", "input_0"), ("n", "length"), ("result_ptr", "output_0")],
     "array_sort": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
     "linalg_det": [("x", "input_0"), ("result_ptr", "output_0"), ("n", "dim")],
     "linalg_qr": [("x", "input_0"), ("out_q", "output_0"), ("out_r", "output_1"), ("n", "dim")],
-    "linalg_svd": [("x", "input_0"), ("out_u", "output_0"), ("out_s", "output_1"), ("out_v", "output_2"), ("n", "dim")],
+    "linalg_svd": [
+        ("x", "input_0"),
+        ("out_u", "output_0"),
+        ("out_s", "output_1"),
+        ("out_v", "output_2"),
+        ("n", "dim"),
+    ],
     "reduce_argmax": [("x", "input_0"), ("result_ptr", "output_0"), ("n", "length")],
     "reduce_argmin": [("x", "input_0"), ("result_ptr", "output_0"), ("n", "length")],
     "reduce_any": [("x", "input_0"), ("result_ptr", "output_0"), ("n", "length")],
@@ -135,9 +192,24 @@ BODY_PARAM_MAP: dict[str, list[tuple[str, str]]] = {
     "array_repeat": [("x", "input_0"), ("out", "output_0"), ("n", "length"), ("reps", "input_1")],
     "array_flip": [("x", "input_0"), ("out", "output_0"), ("n", "length")],
     "array_roll": [("x", "input_0"), ("out", "output_0"), ("n", "length"), ("shift", "input_1")],
-    "array_split": [("x", "input_0"), ("out", "output_0"), ("n", "length"), ("n_sections", "input_1")],
-    "array_unique": [("x", "input_0"), ("out", "output_0"), ("out_count", "output_1"), ("n", "length")],
-    "array_searchsorted": [("x", "input_0"), ("v", "input_1"), ("out", "output_0"), ("n", "length")],
+    "array_split": [
+        ("x", "input_0"),
+        ("out", "output_0"),
+        ("n", "length"),
+        ("n_sections", "input_1"),
+    ],
+    "array_unique": [
+        ("x", "input_0"),
+        ("out", "output_0"),
+        ("out_count", "output_1"),
+        ("n", "length"),
+    ],
+    "array_searchsorted": [
+        ("x", "input_0"),
+        ("v", "input_1"),
+        ("out", "output_0"),
+        ("n", "length"),
+    ],
     "loop_concat": [("x", "input_0"), ("n_iters", "input_1"), ("out", "output_0"), ("n", "length")],
 }
 
@@ -1144,9 +1216,9 @@ def _sanitize_name(name: str) -> str:
     if name is None:
         return "_unnamed"
     clean = name.replace(".", "_").replace("-", "_").replace("/", "_").replace("\\", "_")
-    clean = re.sub(r'[^A-Za-z0-9_]', '_', clean)
-    clean = re.sub(r'_+', '_', clean)
-    while clean.endswith('_'):
+    clean = re.sub(r"[^A-Za-z0-9_]", "_", clean)
+    clean = re.sub(r"_+", "_", clean)
+    while clean.endswith("_"):
         clean = clean[:-1]
     if not clean:
         clean = "_unnamed"
@@ -1203,7 +1275,13 @@ def _format_const_literal(v: float, force_float: bool = False) -> str:
     return f"{v:.6g}"
 
 
-def _substitute_body_params(body: str, mapping: dict[str, str], scalar_constants: dict[str, float] | None = None, scalar_params: set[str] | None = None, float_const_names: set[str] | None = None) -> str:
+def _substitute_body_params(
+    body: str,
+    mapping: dict[str, str],
+    scalar_constants: dict[str, float] | None = None,
+    scalar_params: set[str] | None = None,
+    float_const_names: set[str] | None = None,
+) -> str:
     """Substitute canonical parameter names in kernel body with IR parameter names.
 
     Uses longest-match-first to avoid partial replacements (e.g. 'out' before 'out_real').
@@ -1214,13 +1292,13 @@ def _substitute_body_params(body: str, mapping: dict[str, str], scalar_constants
     if not filtered:
         return body
     sorted_keys = sorted(filtered.keys(), key=len, reverse=True)
-    pattern = re.compile(r'\b(' + '|'.join(re.escape(k) for k in sorted_keys) + r')\b')
+    pattern = re.compile(r"\b(" + "|".join(re.escape(k) for k in sorted_keys) + r")\b")
     body = pattern.sub(lambda m: filtered[m.group(0)], body)
 
     if scalar_params:
         for mapped_name in scalar_params:
             body = re.sub(
-                r'\b' + re.escape(mapped_name) + r'\s*\[[^\]]*\]',
+                r"\b" + re.escape(mapped_name) + r"\s*\[[^\]]*\]",
                 mapped_name,
                 body,
             )
@@ -1228,15 +1306,16 @@ def _substitute_body_params(body: str, mapping: dict[str, str], scalar_constants
     if scalar_constants:
         for mapped_name, const_val in scalar_constants.items():
             const_str = _format_const_literal(
-                const_val, force_float=float_const_names is not None and mapped_name in float_const_names
+                const_val,
+                force_float=float_const_names is not None and mapped_name in float_const_names,
             )
             body = re.sub(
-                r'\b' + re.escape(mapped_name) + r'\s*\[\s*(?:[A-Za-z_]\w*)\s*\]',
+                r"\b" + re.escape(mapped_name) + r"\s*\[\s*(?:[A-Za-z_]\w*)\s*\]",
                 const_str,
                 body,
             )
             body = re.sub(
-                r'\b' + re.escape(mapped_name) + r'\b(?!\s*[\[\(])',
+                r"\b" + re.escape(mapped_name) + r"\b(?!\s*[\[\(])",
                 const_str,
                 body,
             )
@@ -1368,20 +1447,19 @@ class C99Generator:
         ordered = graph.topological_sort()
 
         rng_nodes = [
-            n for n in ordered
-            if n.algorithm in ("alloc_random", "array_permutation", "noop_seed")
+            n for n in ordered if n.algorithm in ("alloc_random", "array_permutation", "noop_seed")
         ]
         first_rng_node = rng_nodes[0] if rng_nodes else None
 
         header_guard = _make_header_guard(module_name)
-        header_content = self._generate_header(
-            graph, module_name, header_guard, ordered, timestamp
+        header_content = self._generate_header(graph, module_name, header_guard, ordered, timestamp)
+        result.files.append(
+            GeneratedFile(
+                path=f"{_sanitize_name(module_name)}.h",
+                content=header_content,
+                file_type="h",
+            )
         )
-        result.files.append(GeneratedFile(
-            path=f"{_sanitize_name(module_name)}.h",
-            content=header_content,
-            file_type="h",
-        ))
 
         for node in ordered:
             rng_role = None
@@ -1389,26 +1467,32 @@ class C99Generator:
                 rng_role = "define" if node is first_rng_node else "extern"
             c_content = self._generate_c_file(node, module_name, timestamp, rng_role)
             filename = f"{_sanitize_name(node.node_id)}.c"
-            result.files.append(GeneratedFile(
-                path=filename,
-                content=c_content,
-                file_type="c",
-            ))
+            result.files.append(
+                GeneratedFile(
+                    path=filename,
+                    content=c_content,
+                    file_type="c",
+                )
+            )
 
             prov_content = self._generate_provenance(node, module_name, timestamp)
             prov_filename = f"{_sanitize_name(node.node_id)}.prov.json"
-            result.files.append(GeneratedFile(
-                path=prov_filename,
-                content=prov_content,
-                file_type="prov",
-            ))
+            result.files.append(
+                GeneratedFile(
+                    path=prov_filename,
+                    content=prov_content,
+                    file_type="prov",
+                )
+            )
 
         cmake_content = self._generate_cmake(graph, module_name, ordered)
-        result.files.append(GeneratedFile(
-            path="CMakeLists.txt",
-            content=cmake_content,
-            file_type="cmake",
-        ))
+        result.files.append(
+            GeneratedFile(
+                path="CMakeLists.txt",
+                content=cmake_content,
+                file_type="cmake",
+            )
+        )
 
         return result
 
@@ -1445,32 +1529,34 @@ class C99Generator:
         ]
 
         if self.fixed_point:
-            lines.extend([
-                "typedef int32_t q31_t;",
-                "typedef int16_t q15_t;",
-                "",
-                "#define Q31_ONE ((q31_t)(1 << 30))",
-                "#define Q31_MAX ((q31_t)0x7FFFFFFF)",
-                "#define Q31_MIN ((q31_t)0x80000000)",
-                "#define Q15_ONE ((q15_t)(1 << 14))",
-                "",
-                "static inline q31_t q31_mul(q31_t a, q31_t b) {",
-                "    return (q31_t)(((int64_t)a * (int64_t)b) >> 30);",
-                "}",
-                "",
-                "static inline q31_t q31_add(q31_t a, q31_t b) {",
-                "    return a + b;",
-                "}",
-                "",
-                "static inline q31_t q31_sub(q31_t a, q31_t b) {",
-                "    return a - b;",
-                "}",
-                "",
-                "static inline q15_t q15_mul(q15_t a, q15_t b) {",
-                "    return (q15_t)(((int32_t)a * (int32_t)b) >> 14);",
-                "}",
-                "",
-            ])
+            lines.extend(
+                [
+                    "typedef int32_t q31_t;",
+                    "typedef int16_t q15_t;",
+                    "",
+                    "#define Q31_ONE ((q31_t)(1 << 30))",
+                    "#define Q31_MAX ((q31_t)0x7FFFFFFF)",
+                    "#define Q31_MIN ((q31_t)0x80000000)",
+                    "#define Q15_ONE ((q15_t)(1 << 14))",
+                    "",
+                    "static inline q31_t q31_mul(q31_t a, q31_t b) {",
+                    "    return (q31_t)(((int64_t)a * (int64_t)b) >> 30);",
+                    "}",
+                    "",
+                    "static inline q31_t q31_add(q31_t a, q31_t b) {",
+                    "    return a + b;",
+                    "}",
+                    "",
+                    "static inline q31_t q31_sub(q31_t a, q31_t b) {",
+                    "    return a - b;",
+                    "}",
+                    "",
+                    "static inline q15_t q15_mul(q15_t a, q15_t b) {",
+                    "    return (q15_t)(((int32_t)a * (int32_t)b) >> 14);",
+                    "}",
+                    "",
+                ]
+            )
 
         for sig in func_sigs:
             lines.append(f"{sig};")
@@ -1480,8 +1566,9 @@ class C99Generator:
         lines.append("")
         return "\n".join(lines)
 
-    def _generate_c_file(self, node: MathIRNode, module_name: str, timestamp: str,
-                         rng_state_role: str | None = None) -> str:
+    def _generate_c_file(
+        self, node: MathIRNode, module_name: str, timestamp: str, rng_state_role: str | None = None
+    ) -> str:
         mapping = _build_body_param_mapping(node)
         scalar_constants = self._extract_scalar_constants(node)
         func_sig = self._make_function_signature(node, mapping, scalar_constants)
@@ -1490,24 +1577,190 @@ class C99Generator:
         if raw_body is None:
             body = f"    #error \"No C implementation for algorithm '{node.algorithm}' — add to MATH_KERNEL_BODIES in c99_generator.py\""
         else:
-            _code_only = re.sub(r'/\*.*?\*/', '', raw_body, flags=re.DOTALL)
-            _code_only = re.sub(r'//[^\n]*', '', _code_only)
-            _body_ids = set(re.findall(r'\b([A-Za-z_]\w*)\b', _code_only))
+            _code_only = re.sub(r"/\*.*?\*/", "", raw_body, flags=re.DOTALL)
+            _code_only = re.sub(r"//[^\n]*", "", _code_only)
+            _body_ids = set(re.findall(r"\b([A-Za-z_]\w*)\b", _code_only))
             _c_builtins = {
-                'int', 'double', 'float', 'void', 'for', 'if', 'else', 'while',
-                'return', 'sizeof', 'NULL', 'true', 'false', 'static', 'inline',
-                'const', 'restrict', 'unsigned', 'long', 'short', 'char',
-                'memset', 'memcpy', 'malloc', 'calloc', 'free', 'fabs', 'sqrt', 'exp', 'log', 'sin', 'cos',
-                'tan', 'tanh', 'pow', 'atan2', 'fmin', 'fmax', 'floor', 'ceil', 'trunc', 'isinf', 'signbit',
-                'log10', 'log1p',
-                'M_PI', 'size_t', 'uint8_t', 'int32_t', 'uint32_t',
-                'continue', 'break', 'do',
+                "int",
+                "double",
+                "float",
+                "void",
+                "for",
+                "if",
+                "else",
+                "while",
+                "return",
+                "sizeof",
+                "NULL",
+                "true",
+                "false",
+                "static",
+                "inline",
+                "const",
+                "restrict",
+                "unsigned",
+                "long",
+                "short",
+                "char",
+                "memset",
+                "memcpy",
+                "malloc",
+                "calloc",
+                "free",
+                "fabs",
+                "sqrt",
+                "exp",
+                "log",
+                "sin",
+                "cos",
+                "tan",
+                "tanh",
+                "pow",
+                "atan2",
+                "fmin",
+                "fmax",
+                "floor",
+                "ceil",
+                "trunc",
+                "isinf",
+                "signbit",
+                "log10",
+                "log1p",
+                "M_PI",
+                "size_t",
+                "uint8_t",
+                "int32_t",
+                "uint32_t",
+                "continue",
+                "break",
+                "do",
             }
             _mapped_names = set(mapping.values())
-            _loop_vars = {'i', 'j', 'k', 'kk', 't', 'u', 'bit', 'mask', 'col', 'row', 'half', 'size', 'factor', 'max_row', 'min_val', 'max_val', 'sum', 'a_ik', 'pivot', 'center', 'radius', 'angle', 'cur_w_re', 'cur_w_im', 'new_w_re', 'new_w_im', 'tmp_re', 'tmp_im', 'u_idx', 't_idx', 'aug', 'denom', 'val', 'cond', 'a_val', 'b_val', 's', 'out', 'eigenvalues', 'L', 'idx_val', 'v', 'state', 'key', 'key_idx', 'tmp', 'a_max', 'a_min', 'norm_sum', 'var_mean', 'var_sum', 'd', 'n_out', 'n_a', 'n_b', 'spec', 'h', 'per_iter', 'n_iters', 'all_val', 'any_val', 'prod', 'cum', 'count', 'det', 'lu', 'min_idx', 'max_idx', 'r', 'idx', 'g', 't_re', 't_im', 'w_re', 'w_im', 'purce_rng_state', 'dot', 'norm', 'Acopy', 'Q', 'R', 'AtA', 'ev', 'iter', 'max_off', 'p', 'q', 'app', 'aqq', 'apq', 'theta', 'c', 's', 'aip', 'aiq', 'apj', 'aqj', 'Awork', 'Qt', 'unorm', 'sign', 'off', 'sweep', 'tau', 'Vv', 'out_u', 'out_s', 'out_v', 'out_q', 'out_r', 'sidx', 'ki', 'acc', 'vip', 'viq', 'max_abs', 'sign_u', 'a'}
+            _loop_vars = {
+                "i",
+                "j",
+                "k",
+                "kk",
+                "t",
+                "u",
+                "bit",
+                "mask",
+                "col",
+                "row",
+                "half",
+                "size",
+                "factor",
+                "max_row",
+                "min_val",
+                "max_val",
+                "sum",
+                "a_ik",
+                "pivot",
+                "center",
+                "radius",
+                "angle",
+                "cur_w_re",
+                "cur_w_im",
+                "new_w_re",
+                "new_w_im",
+                "tmp_re",
+                "tmp_im",
+                "u_idx",
+                "t_idx",
+                "aug",
+                "denom",
+                "val",
+                "cond",
+                "a_val",
+                "b_val",
+                "s",
+                "out",
+                "eigenvalues",
+                "L",
+                "idx_val",
+                "v",
+                "state",
+                "key",
+                "key_idx",
+                "tmp",
+                "a_max",
+                "a_min",
+                "norm_sum",
+                "var_mean",
+                "var_sum",
+                "d",
+                "n_out",
+                "n_a",
+                "n_b",
+                "spec",
+                "h",
+                "per_iter",
+                "n_iters",
+                "all_val",
+                "any_val",
+                "prod",
+                "cum",
+                "count",
+                "det",
+                "lu",
+                "min_idx",
+                "max_idx",
+                "r",
+                "idx",
+                "g",
+                "t_re",
+                "t_im",
+                "w_re",
+                "w_im",
+                "purce_rng_state",
+                "dot",
+                "norm",
+                "Acopy",
+                "Q",
+                "R",
+                "AtA",
+                "ev",
+                "iter",
+                "max_off",
+                "p",
+                "q",
+                "app",
+                "aqq",
+                "apq",
+                "theta",
+                "c",
+                "s",
+                "aip",
+                "aiq",
+                "apj",
+                "aqj",
+                "Awork",
+                "Qt",
+                "unorm",
+                "sign",
+                "off",
+                "sweep",
+                "tau",
+                "Vv",
+                "out_u",
+                "out_s",
+                "out_v",
+                "out_q",
+                "out_r",
+                "sidx",
+                "ki",
+                "acc",
+                "vip",
+                "viq",
+                "max_abs",
+                "sign_u",
+                "a",
+            }
             _canon_valid = set(mapping.keys())
             _const_names = set(scalar_constants.keys())
-            _unresolved = _body_ids - _c_builtins - _mapped_names - _canon_valid - _loop_vars - _const_names
+            _unresolved = (
+                _body_ids - _c_builtins - _mapped_names - _canon_valid - _loop_vars - _const_names
+            )
             if _unresolved:
                 body = f"    #error \"Unresolved identifiers in '{node.algorithm}' body: {', '.join(sorted(_unresolved))} — update BODY_PARAM_MAP in c99_generator.py\""
             else:
@@ -1521,7 +1774,9 @@ class C99Generator:
                     for n, dt, s in node.inputs
                     if dt in (Dtype.FLOAT32, Dtype.FLOAT64)
                 } & set(scalar_constants)
-                body = _substitute_body_params(raw_body, mapping, scalar_constants, scalar_params, float_const_names)
+                body = _substitute_body_params(
+                    raw_body, mapping, scalar_constants, scalar_params, float_const_names
+                )
 
             def _inline_const(nm: str) -> str | None:
                 if nm in scalar_constants:
@@ -1540,12 +1795,24 @@ class C99Generator:
                     if shape == "array" or (isinstance(shape, str) and shape.startswith("(")):
                         literal_lines.append(f"    {out_name}[{i}] = {safe}[0];")
                     else:
-                        literal_lines.append(f"    {out_name}[{i}] = {inline if inline is not None else safe};")
+                        literal_lines.append(
+                            f"    {out_name}[{i}] = {inline if inline is not None else safe};"
+                        )
                 body = "\n".join(literal_lines)
                 body += "\n    (void)n;"
-            elif node.algorithm == "matrix_diag_from" and node.inputs \
-                    and not (len(node.inputs) == 1 and (node.inputs[0][2] == "array"
-                                                        or (isinstance(node.inputs[0][2], str) and node.inputs[0][2].startswith("(")))):
+            elif (
+                node.algorithm == "matrix_diag_from"
+                and node.inputs
+                and not (
+                    len(node.inputs) == 1
+                    and (
+                        node.inputs[0][2] == "array"
+                        or (
+                            isinstance(node.inputs[0][2], str) and node.inputs[0][2].startswith("(")
+                        )
+                    )
+                )
+            ):
                 diag_lines = []
                 out_name = _sanitize_name(mapping.get(node.outputs[0][0], node.outputs[0][0]))
                 for i, (nm, _, shape) in enumerate(node.inputs):
@@ -1554,8 +1821,15 @@ class C99Generator:
                     if shape == "array" or (isinstance(shape, str) and shape.startswith("(")):
                         diag_lines.append(f"    {out_name}[{i} * n + {i}] = {safe}[0];")
                     else:
-                        diag_lines.append(f"    {out_name}[{i} * n + {i}] = {inline if inline is not None else safe};")
-                body = "    for (int i = 0; i < n * n; i++) {\n        " + out_name + "[i] = 0.0;\n    }\n" + "\n".join(diag_lines)
+                        diag_lines.append(
+                            f"    {out_name}[{i} * n + {i}] = {inline if inline is not None else safe};"
+                        )
+                body = (
+                    "    for (int i = 0; i < n * n; i++) {\n        "
+                    + out_name
+                    + "[i] = 0.0;\n    }\n"
+                    + "\n".join(diag_lines)
+                )
                 body += "\n    (void)n;"
 
             scalar_in_names = {
@@ -1564,15 +1838,18 @@ class C99Generator:
                 if s != "array" and not (isinstance(s, str) and s.startswith("("))
             }
             for sin in scalar_in_names:
-                body = re.sub(r'\b' + re.escape(sin) + r'\s*\[i\]', sin, body)
+                body = re.sub(r"\b" + re.escape(sin) + r"\s*\[i\]", sin, body)
 
-            if node.outputs and node.outputs[0][2] != "array" \
-                    and not (isinstance(node.outputs[0][2], str) and node.outputs[0][2].startswith("(")):
+            if (
+                node.outputs
+                and node.outputs[0][2] != "array"
+                and not (isinstance(node.outputs[0][2], str) and node.outputs[0][2].startswith("("))
+            ):
                 out0 = _sanitize_name(node.outputs[0][0])
-                if re.search(r'\b' + re.escape(out0) + r'\s*\[', body):
-                    body = re.sub(r'\b' + re.escape(out0) + r'\s*\[i\]', '*' + out0, body)
-                    body = re.sub(r'for\s*\([^)]*\)\s*\{\s*\n', '', body)
-                    body = re.sub(r'\n\s*\}', '', body, count=1)
+                if re.search(r"\b" + re.escape(out0) + r"\s*\[", body):
+                    body = re.sub(r"\b" + re.escape(out0) + r"\s*\[i\]", "*" + out0, body)
+                    body = re.sub(r"for\s*\([^)]*\)\s*\{\s*\n", "", body)
+                    body = re.sub(r"\n\s*\}", "", body, count=1)
 
         if rng_state_role is not None:
             body = body.replace(
@@ -1624,66 +1901,79 @@ class C99Generator:
         ]
         if rng_state_role is not None:
             rng_name = f"{_sanitize_name(module_name)}_purce_rng_state"
-            lines.extend([
-                "/* Shared LCG state for numpy.random semantics — one definition per",
-                f" * module ({rng_name}), shared across this module's generated kernels.",
-                " * Compile the module's generated files together when linking.",
-                " */",
-                f"uint32_t {rng_name} = 12345u;"
-                if rng_state_role == "define"
-                else f"extern uint32_t {rng_name};",
-            ])
+            lines.extend(
+                [
+                    "/* Shared LCG state for numpy.random semantics — one definition per",
+                    f" * module ({rng_name}), shared across this module's generated kernels.",
+                    " * Compile the module's generated files together when linking.",
+                    " */",
+                    f"uint32_t {rng_name} = 12345u;"
+                    if rng_state_role == "define"
+                    else f"extern uint32_t {rng_name};",
+                ]
+            )
             lines.append("")
 
-        lines.extend([
-            "/* ───────────────────────────────────────────────────────────────────────────",
-            f" * SEMANTIC UNIT:    {node.node_id}",
-            f" * ORIGIN SYMBOL:    {node.origin_symbol}",
-            f" * ORIGIN FILE:      {node.origin_file}:{node.origin_line}",
-            f" * ORIGIN SIGNATURE: {node.origin_signature}",
-            " *",
-            " * MATH INTENT:",
-            f" *   {node.math_intent}",
-            " *",
-            " * REDUCTION LOG:",
-            f"{reduction_block}",
-            " *",
-            " * MEMORY CONTRACT:",
-            f" *   - Stack:   {stack_str} bytes",
-            f" *   - Heap:    {heap_str}",
-            f" *   - Reentrancy: {reentrant_str}",
-            " *",
-            " * CORRECTNESS:",
-            (
-                " *   - Verified: NO — stub not implemented (unverified)"
-                if node.algorithm in _STUB_ALGORITHMS
-                else " *   - Verified: differential fuzzing (10k iterations)"
-            ),
-            (
-                " *   - Bounds:   unverified (stub)"
-                if node.algorithm in _STUB_ALGORITHMS
-                else " *   - Bounds:   within representable range for target dtype"
-            ),
-            " * ─────────────────────────────────────────────────────────────────────────── */",
-            "",
-            f"{func_sig} {{",
-            f"{body}",
-            "}",
-            "",
-        ])
+        lines.extend(
+            [
+                "/* ───────────────────────────────────────────────────────────────────────────",
+                f" * SEMANTIC UNIT:    {node.node_id}",
+                f" * ORIGIN SYMBOL:    {node.origin_symbol}",
+                f" * ORIGIN FILE:      {node.origin_file}:{node.origin_line}",
+                f" * ORIGIN SIGNATURE: {node.origin_signature}",
+                " *",
+                " * MATH INTENT:",
+                f" *   {node.math_intent}",
+                " *",
+                " * REDUCTION LOG:",
+                f"{reduction_block}",
+                " *",
+                " * MEMORY CONTRACT:",
+                f" *   - Stack:   {stack_str} bytes",
+                f" *   - Heap:    {heap_str}",
+                f" *   - Reentrancy: {reentrant_str}",
+                " *",
+                " * CORRECTNESS:",
+                (
+                    " *   - Verified: NO — stub not implemented (unverified)"
+                    if node.algorithm in _STUB_ALGORITHMS
+                    else " *   - Verified: differential fuzzing (10k iterations)"
+                ),
+                (
+                    " *   - Bounds:   unverified (stub)"
+                    if node.algorithm in _STUB_ALGORITHMS
+                    else " *   - Bounds:   within representable range for target dtype"
+                ),
+                " * ─────────────────────────────────────────────────────────────────────────── */",
+                "",
+                f"{func_sig} {{",
+                f"{body}",
+                "}",
+                "",
+            ]
+        )
 
         return "\n".join(lines)
 
     def _extract_scalar_constants(self, node: MathIRNode) -> dict[str, float]:
         return dict(node.scalar_constants)
 
-    def _make_function_signature(self, node: MathIRNode, mapping: dict[str, str] | None = None, scalar_constants: dict[str, float] | None = None) -> str:
+    def _make_function_signature(
+        self,
+        node: MathIRNode,
+        mapping: dict[str, str] | None = None,
+        scalar_constants: dict[str, float] | None = None,
+    ) -> str:
         c_params: list[str] = []
         skip_inputs = set()
         emitted_names = set()
 
         if scalar_constants:
-            array_input_names = {n for n, dt, s in node.inputs if s == "array" or (isinstance(s, str) and s.startswith("("))}
+            array_input_names = {
+                n
+                for n, dt, s in node.inputs
+                if s == "array" or (isinstance(s, str) and s.startswith("("))
+            }
             for const_name in scalar_constants:
                 if const_name not in array_input_names:
                     skip_inputs.add(const_name)
@@ -1741,7 +2031,7 @@ class C99Generator:
 
         for dparam in derived:
             mapped_dparam = mapping.get(dparam, dparam) if mapping else dparam
-            if not any(re.search(r'\b' + re.escape(mapped_dparam) + r'\b', p) for p in c_params):
+            if not any(re.search(r"\b" + re.escape(mapped_dparam) + r"\b", p) for p in c_params):
                 c_params.insert(0, f"int {mapped_dparam}")
 
         params_str = ", ".join(c_params) if c_params else "void"
@@ -1765,14 +2055,8 @@ class C99Generator:
                 "algorithm": node.algorithm,
                 "math_intent": node.math_intent,
                 "effects": [e.name for e in node.effects],
-                "inputs": [
-                    {"name": n, "dtype": dt.name, "shape": s}
-                    for n, dt, s in node.inputs
-                ],
-                "outputs": [
-                    {"name": n, "dtype": dt.name, "shape": s}
-                    for n, dt, s in node.outputs
-                ],
+                "inputs": [{"name": n, "dtype": dt.name, "shape": s} for n, dt, s in node.inputs],
+                "outputs": [{"name": n, "dtype": dt.name, "shape": s} for n, dt, s in node.outputs],
             },
             "memory": {
                 "stack_usage_bytes": node.stack_usage,
@@ -1798,7 +2082,7 @@ class C99Generator:
             "",
             "set(CMAKE_C_STANDARD 99)",
             "set(CMAKE_C_STANDARD_REQUIRED ON)",
-            "set(CMAKE_C_FLAGS \"${CMAKE_C_FLAGS} -Wall -Wextra -pedantic\")",
+            'set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra -pedantic")',
             "",
             f"add_library({_sanitize_name(module_name)}",
         ]

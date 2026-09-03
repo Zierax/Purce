@@ -3,18 +3,17 @@
 Tests that purce can parse, build IR, slice, and generate C99 from
 real-world code patterns found in JAX, PyTorch, SciPy, and NumPy.
 """
+
 from __future__ import annotations
 
 import os
 import re
 
-import pytest
 
 from purce.backend.c99_generator import C99Generator
 from purce.ir.builder import MathIRBuilder
 from purce.parser.python_parser import PythonParser
 from purce.slicer.semantic_slicer import SemanticSlicer
-from purce.verifier.fuzzer import DifferentialFuzzer
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -40,7 +39,7 @@ def _load_realworld_file(filename: str) -> str:
 
 
 def _has_c_function(content: str) -> bool:
-    return bool(re.search(r'\b(void|int|double|float)\s+\w+\s*\(', content))
+    return bool(re.search(r"\b(void|int|double|float)\s+\w+\s*\(", content))
 
 
 # ── JAX ops ──────────────────────────────────────────────────────────────────
@@ -434,6 +433,7 @@ class TestSignalProcessing:
 class TestExtraPatterns:
     def test_extra_patterns_source_strings_parse(self) -> None:
         import importlib.util
+
         path = os.path.join(os.path.dirname(__file__), "realworld", "extra_patterns.py")
         spec = importlib.util.spec_from_file_location("extra_patterns", path)
         mod = importlib.util.module_from_spec(spec)
@@ -452,6 +452,7 @@ class TestExtraPatterns:
 
     def test_extra_patterns_have_provenance(self) -> None:
         import importlib.util
+
         path = os.path.join(os.path.dirname(__file__), "realworld", "extra_patterns.py")
         spec = importlib.util.spec_from_file_location("extra_patterns", path)
         mod = importlib.util.module_from_spec(spec)
@@ -653,10 +654,23 @@ class TestRecommendation:
 class TestStress:
     def test_100_random_sources_parse_without_crash(self) -> None:
         import random
+
         random.seed(42)
-        ops = ["np.add", "np.subtract", "np.multiply", "np.divide",
-               "np.sum", "np.mean", "np.sqrt", "np.exp", "np.log",
-               "np.sin", "np.cos", "np.abs", "np.tan"]
+        ops = [
+            "np.add",
+            "np.subtract",
+            "np.multiply",
+            "np.divide",
+            "np.sum",
+            "np.mean",
+            "np.sqrt",
+            "np.exp",
+            "np.log",
+            "np.sin",
+            "np.cos",
+            "np.abs",
+            "np.tan",
+        ]
         for i in range(100):
             op = random.choice(ops)
             n_inputs = 2 if op in ("np.add", "np.subtract", "np.multiply", "np.divide") else 1
@@ -666,13 +680,15 @@ class TestStress:
             builder = MathIRBuilder(origin_file="stress")
             graph = builder.build_from_source(src, module="stress")
             assert isinstance(graph.nodes, dict)
-            assert len(graph.nodes) == 1, f"Iteration {i}: expected 1 node for {op}, got {len(graph.nodes)}"
+            assert len(graph.nodes) == 1, (
+                f"Iteration {i}: expected 1 node for {op}, got {len(graph.nodes)}"
+            )
 
     def test_large_multi_op_source_parses(self) -> None:
         lines = ["import numpy as np"]
         for i in range(50):
             lines.append(f"def func_{i}(a, b):")
-            lines.append(f"    return np.add(a, b)")
+            lines.append("    return np.add(a, b)")
         src = "\n".join(lines)
         builder = MathIRBuilder(origin_file="large")
         graph = builder.build_from_source(src, module="large")

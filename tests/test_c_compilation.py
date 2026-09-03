@@ -3,6 +3,7 @@
 Generates C99 code from Python sources and compiles each .c file with gcc
 to verify the generated code is syntactically valid C99.
 """
+
 from __future__ import annotations
 
 import os
@@ -21,7 +22,9 @@ RequiresGcc = pytest.mark.skipif(not _HAS_GCC, reason="gcc not available")
 
 
 def _run_pipeline(source: str, module_name: str = "test_mod") -> C99Generator.GenerateResult:
-    parser = __import__("purce.parser.python_parser", fromlist=["PythonParser"]).PythonParser(target_profile="generic-c99")
+    parser = __import__("purce.parser.python_parser", fromlist=["PythonParser"]).PythonParser(
+        target_profile="generic-c99"
+    )
     parsed = parser.parse_source(source, f"{module_name}.py")
     builder = MathIRBuilder(origin_file=module_name)
     graph = builder.build_from_source(source, module=module_name)
@@ -45,9 +48,22 @@ def _compile_c_file(c_path: str, gcc: str) -> tuple[bool, str]:
         out_path = tmp.name
     try:
         result = subprocess.run(
-            [gcc, "-std=c99", "-O2", "-Wall", "-Wextra", "-pedantic",
-             "-c", c_path, "-o", out_path, "-lm"],
-            capture_output=True, text=True, timeout=30,
+            [
+                gcc,
+                "-std=c99",
+                "-O2",
+                "-Wall",
+                "-Wextra",
+                "-pedantic",
+                "-c",
+                c_path,
+                "-o",
+                out_path,
+                "-lm",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
         )
         return result.returncode == 0, result.stderr
     except subprocess.TimeoutExpired:
@@ -138,10 +154,20 @@ class TestCCompilationNoWarnings:
                 with open(c_path, "w", encoding="utf-8") as fh:
                     fh.write(cf.content)
                 result = subprocess.run(
-                    [gcc, "-std=c99", "-O2", "-Wall", "-Wextra", "-pedantic",
-                     "-fsyntax-only", c_path],
-                    capture_output=True, text=True, timeout=15,
+                    [
+                        gcc,
+                        "-std=c99",
+                        "-O2",
+                        "-Wall",
+                        "-Wextra",
+                        "-pedantic",
+                        "-fsyntax-only",
+                        c_path,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=15,
                 )
                 warnings = [l for l in result.stderr.splitlines() if "warning:" in l.lower()]
                 assert result.returncode == 0, f"Compilation error:\n{result.stderr}"
-                assert len(warnings) == 0, f"Warnings found:\n" + "\n".join(warnings)
+                assert len(warnings) == 0, "Warnings found:\n" + "\n".join(warnings)

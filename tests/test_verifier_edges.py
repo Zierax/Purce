@@ -267,7 +267,9 @@ class TestCtypesBridgeHelpers:
             raise OSError("cannot delete")
 
         monkeypatch.setattr(shutil, "rmtree", _boom)
-        compiled = _ct.CompiledKernels(lib=object(), lib_path="/tmp/x", temp_dir="/tmp/purce_edge_test")
+        compiled = _ct.CompiledKernels(
+            lib=object(), lib_path="/tmp/x", temp_dir="/tmp/purce_edge_test"
+        )
         compiled.close()  # must not raise
 
     def test_compile_kernels_gcc_error(self, monkeypatch) -> None:
@@ -519,7 +521,9 @@ class TestSemanticSoundnessFixes:
 
     def test_array_literal_emits_element_assignments(self) -> None:
         """np.array([1.0, 2.0, 3.0]) must copy its literal elements into out."""
-        _, gen = self._generate("import numpy as np\ndef f():\n    return np.array([1.0, 2.0, 3.0])")
+        _, gen = self._generate(
+            "import numpy as np\ndef f():\n    return np.array([1.0, 2.0, 3.0])"
+        )
         c = self._c_files(gen)[0].content
         assert "result[0] = 1;" in c
         assert "result[1] = 2;" in c
@@ -572,10 +576,16 @@ class TestSemanticSoundnessFixes:
         graph, gen = self._generate(source)
         algos = {n.algorithm for n in graph.nodes.values()}
         assert {"noop_seed", "alloc_random"} <= algos
-        seed_file = next(f for f in gen.files if f.file_type == "c"
-                         and "purce_rng_state = (uint32_t)" in f.content)
-        rand_file = next(f for f in gen.files if f.file_type == "c"
-                         and "purce_rng_state * 1103515245u" in f.content)
+        seed_file = next(
+            f
+            for f in gen.files
+            if f.file_type == "c" and "purce_rng_state = (uint32_t)" in f.content
+        )
+        rand_file = next(
+            f
+            for f in gen.files
+            if f.file_type == "c" and "purce_rng_state * 1103515245u" in f.content
+        )
         assert "purce_rng_state = (uint32_t)s;" in seed_file.content
         assert "uint32_t fix_mod_purce_rng_state = 12345u;" in seed_file.content
         assert "extern uint32_t fix_mod_purce_rng_state;" not in seed_file.content
@@ -622,6 +632,4 @@ class TestGeneratedKernelsCompileClean:
                     capture_output=True,
                     text=True,
                 )
-                assert result.returncode == 0, (
-                    f"{name} :: {cf.path} failed:\n{result.stderr}"
-                )
+                assert result.returncode == 0, f"{name} :: {cf.path} failed:\n{result.stderr}"

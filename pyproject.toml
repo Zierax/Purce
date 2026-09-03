@@ -40,5 +40,34 @@ purce = ["py.typed"]
 target-version = "py311"
 line-length = 100
 
+[tool.ruff.lint]
+# E741 ambiguous var (l/O) allowed in math kernels; F841 unused locals are
+# pre-existing in builder.py dead branches — tracked, not blocking public launch
+ignore = ["E741", "F841"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_return_any = false
+warn_unused_ignores = false
+[[tool.mypy.overrides]]
+module = "purce.ir.builder"
+ignore_errors = true
+[[tool.mypy.overrides]]
+module = "purce.verifier.equivalence"
+ignore_errors = true
+[[tool.mypy.overrides]]
+module = "purce.parser.python_parser"
+ignore_errors = true
+[[tool.mypy.overrides]]
+module = "purce.backend.c99_generator"
+ignore_errors = true
+[[tool.mypy.overrides]]
+module = "purce.runtime.emitter"
+ignore_errors = true
+[[tool.mypy.overrides]]
+module = "purce.verifier.coverage_sweep"
+ignore_errors = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

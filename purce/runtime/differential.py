@@ -20,38 +20,44 @@ only observable):
 from __future__ import annotations
 
 import ctypes
-import os
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
-from purce.runtime.emitter import UnsupportedError, compile_source
+from purce.runtime.emitter import compile_source
 
 REPO = Path(__file__).resolve().parents[1]
 BUILD = REPO / "runtime" / "build"
 BUILD.mkdir(exist_ok=True)
 
-HAVE_GCC = bool(subprocess.run(
-    ["gcc", "--version"], capture_output=True, check=False
-).returncode == 0)
+HAVE_GCC = bool(
+    subprocess.run(["gcc", "--version"], capture_output=True, check=False).returncode == 0
+)
 
 # ── corpus: (name, source) — deterministic stdout only ────────────────
 CORPUS: list[tuple[str, str]] = [
-    ("literals", """
+    (
+        "literals",
+        """
 print(None, True, False, 0, -0, 42, -42)
 print(3.5, -2.25, 0.1, 1e3, 2.0, 1e999)
 print('', 'hello', "world", 'it\\'s', 'tab\\there', 'nl\\nnew')
-"""),
-    ("ints", """
+""",
+    ),
+    (
+        "ints",
+        """
 print(17 + 25, 100 - 3, 7 * 8, 2 ** 10, 2 ** 100)
 print(10 // 3, 10 % 3, -10 // 3, -10 % 3, 7 // -2, 7 % -2)
 print(123456789012345678901234567890 + 1)
 print(123456789012345678901234567890 * 999999999999)
 print(10 / 4, 1 / 2, 7 / 2)
 print(-(-(5)), +(+5), -(-5))
-"""),
-    ("bignum", """
+""",
+    ),
+    (
+        "bignum",
+        """
 print(2 ** 200)
 print(2 ** 200 + 2 ** 199)
 print(2 ** 200 * 3)
@@ -59,15 +65,21 @@ print(10 ** 60 // 7, 10 ** 60 % 7)
 print(12345678901234567890 - 9876543210987654321)
 print(-(2 ** 100))
 print(5 ** 35)
-"""),
-    ("floats", """
+""",
+    ),
+    (
+        "floats",
+        """
 print(0.1 + 0.2)
 print(1.0 / 3.0)
 print(2.5 * 2, 10.0 / 4, 5.5 % 2.0)
 print(-0.0, 1e308 * 10.0, -1e308 * 10.0)
 print(1.5e-5, 1.25e300)
-"""),
-    ("strings", """
+""",
+    ),
+    (
+        "strings",
+        """
 s = 'hello'
 print(len(s), s[0], s[4], s[-1], s[-5])
 print('abc' + 'def', s * 2, s * 0)
@@ -76,8 +88,11 @@ print(str(123), str(-7), str(3.5), str(True), str(None))
 print('x' == 'x', 'a' < 'b', 'b' < 'a', 'abc' <= 'abc')
 t = 'héllo wörld ✓'
 print(t, len(t))
-"""),
-    ("lists", """
+""",
+    ),
+    (
+        "lists",
+        """
 a = [1, 2, 3]
 print(a, len(a), a[0], a[-1])
 b = a + [4, 5]
@@ -90,15 +105,21 @@ print(a)
 print([] == [], [1] == [2], [1, 2] == [1, 2])
 print([1] < [2], [1, 2] < [1, 3])
 print([[1, [2, 3]], []], len([[1, [2, 3]], []]))
-"""),
-    ("tuples", """
+""",
+    ),
+    (
+        "tuples",
+        """
 t = (1, 2, 3)
 print(t, len(t), t[1])
 print((), (1,), (1, 2))
 print(t == (1, 2, 3), t != (1, 2, 4))
 print((1, 2) < (1, 3))
-"""),
-    ("dict", """
+""",
+    ),
+    (
+        "dict",
+        """
 d = {'a': 1, 'b': 2}
 print(d, len(d))
 print(d['a'], d['b'])
@@ -111,27 +132,39 @@ d[1] = 'one'
 d[2] = 'two'
 print(d)
 print({} == {}, {'a': 1} == {'a': 1}, {'a': 1} == {'a': 2})
-"""),
-    ("compare", """
+""",
+    ),
+    (
+        "compare",
+        """
 print(1 < 2 < 3, 1 < 2 < 2, 3 > 2 > 1, 3 > 2 > 3)
 print(1 == 1, 1 != 2, 2 <= 2, 3 >= 4, 5 > 4)
 print('a' < 'b' < 'c', 'a' < 'b' < 'a')
 print(1 < 2 == 2, 1 < 2 > 1)
-"""),
-    ("identity", """
+""",
+    ),
+    (
+        "identity",
+        """
 x = None
 print(x is None, 1 is None, None is None)
 print(1 is not None, None is not None)
-"""),
-    ("boolop", """
+""",
+    ),
+    (
+        "boolop",
+        """
 print(True and False, False and True, True or False, False or False)
 print(0 and 1, 1 and 2, 0 or 2, 3 or 4)
 print(1 and 2 and 3, 0 and 2 and 3, 0 or 2 or 3, 4 or 0 or 5)
 print(1/0 if False else 42, 1 if True else 1/0)
 print(False and 1/0, True or 1/0)
 print(not 0, not 1, not '', not [], not None)
-"""),
-    ("if", """
+""",
+    ),
+    (
+        "if",
+        """
 def f(x):
     if x < 0:
         return 'neg'
@@ -143,8 +176,11 @@ def f(x):
         return 'big'
 print(f(-5), f(0), f(5), f(42))
 print(1 if True else 2, 2 if False else 3)
-"""),
-    ("while", """
+""",
+    ),
+    (
+        "while",
+        """
 i = 0
 s = 0
 while i < 10:
@@ -165,8 +201,11 @@ while i < 100:
         continue
     n = n + i
 print(n)
-"""),
-    ("for", """
+""",
+    ),
+    (
+        "for",
+        """
 s = 0
 for i in range(5):
     s = s + i
@@ -195,14 +234,20 @@ for i in range(10):
         continue
     s = s + i
 print(s)
-"""),
-    ("range", """
+""",
+    ),
+    (
+        "range",
+        """
 r = range(5)
 print(len(r), 2 in r, 9 in r, r[2], r[-1])
 print(list(range(3)), list(range(2, 5)), list(range(0, 10, 3)))
 print(len(range(2, 5)), len(range(0, 10, 3)))
-"""),
-    ("functions", """
+""",
+    ),
+    (
+        "functions",
+        """
 def add(a, b):
     return a + b
 def fact(n):
@@ -226,8 +271,11 @@ def outer(x):
     return inner
 f = outer(10)
 print(f(1), f(2), outer(100)(5))
-"""),
-    ("closures", """
+""",
+    ),
+    (
+        "closures",
+        """
 def counter():
     n = 0
     def inc():
@@ -238,8 +286,11 @@ def counter():
     return get
 c = counter()
 print(c())
-"""),
-    ("builtins", """
+""",
+    ),
+    (
+        "builtins",
+        """
 print(len([1, 2, 3]), len('abc'), len((1, 2)), len({'a': 1}))
 print(abs(-5), abs(5), abs(-3.5))
 print(max(1, 5, 2), min(1, 5, 2), max([3, 1, 2]), min([3, 1, 2]))
@@ -250,15 +301,21 @@ print(float('3.5'), float(7), float(-2), float(True))
 print(str(1), str(1.5), str('x'), str(True), str(None))
 print(list(range(4)), list('ab'), list([1, 2]))
 print(range(3), len(range(3)))
-"""),
-    ("assert_", """
+""",
+    ),
+    (
+        "assert_",
+        """
 assert 1 == 1
 assert True
 x = 5
 assert x > 3
 print('passed')
-"""),
-    ("nested", """
+""",
+    ),
+    (
+        "nested",
+        """
 s = 0
 for i in range(3):
     for j in range(4):
@@ -273,34 +330,53 @@ for i in range(5):
     else:
         t = t + f(i)
 print(t)
-"""),
-    ("strings_ops", """
+""",
+    ),
+    (
+        "strings_ops",
+        """
 s = 'hello world'
 print(s[0:5] if False else s[6:])
-"""),
-    ("errors", """
+""",
+    ),
+    (
+        "errors",
+        """
 try:
     pass
 except Exception:
     pass
 print(1 / 0)
-"""),
-    ("errors2", """
+""",
+    ),
+    (
+        "errors2",
+        """
 a = [1, 2]
 print(a[5])
-"""),
-    ("errors3", """
+""",
+    ),
+    (
+        "errors3",
+        """
 d = {'a': 1}
 print(d['z'])
-"""),
-    ("errors4", """
+""",
+    ),
+    (
+        "errors4",
+        """
 print(len(1))
-"""),
-    ("errors5", """
+""",
+    ),
+    (
+        "errors5",
+        """
 def f():
     return f()
 f()
-"""),
+""",
+    ),
 ]
 
 _ERROR_KINDS = {"zero", "index", "key", "type", "value", "assert"}
@@ -310,6 +386,7 @@ def run_python(program: str) -> tuple[str, str | None]:
     """Run program under CPython; return (stdout, error_kind or None)."""
     import io
     import contextlib
+
     buf = io.StringIO()
     kind: str | None = None
     try:
@@ -339,9 +416,21 @@ def compile_so(program: str, tag: str) -> str | None:
     cfile = BUILD / f"tir_{tag}.c"
     cfile.write_text(src, encoding="utf-8")
     proc = subprocess.run(
-        ["gcc", "-std=c99", "-Wall", "-Werror", "-O2", "-shared", "-fPIC",
-         str(cfile), "-o", str(so)],
-        capture_output=True, text=True, check=False,
+        [
+            "gcc",
+            "-std=c99",
+            "-Wall",
+            "-Werror",
+            "-O2",
+            "-shared",
+            "-fPIC",
+            str(cfile),
+            "-o",
+            str(so),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
     )
     if proc.returncode != 0:
         sys.stderr.write(f"gcc failed for {tag}:\n{proc.stderr}\n")
@@ -355,9 +444,14 @@ def run_so(so: str) -> tuple[str, str | None]:
     lib.purce_tir_state_new.restype = ctypes.c_void_p
     lib.purce_tir_entry.restype = ctypes.c_void_p
     lib.purce_tir_run_list.restype = ctypes.c_int
-    lib.purce_tir_run_list.argtypes = [ctypes.c_void_p, ctypes.c_void_p,
-                                       ctypes.c_char_p, ctypes.c_size_t,
-                                       ctypes.c_char_p, ctypes.c_size_t]
+    lib.purce_tir_run_list.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_char_p,
+        ctypes.c_size_t,
+        ctypes.c_char_p,
+        ctypes.c_size_t,
+    ]
     lib.purce_tir_state_free.argtypes = [ctypes.c_void_p]
     S = lib.purce_tir_state_new()
     ent = lib.purce_tir_entry()
@@ -367,7 +461,7 @@ def run_so(so: str) -> tuple[str, str | None]:
     lib.purce_tir_state_free(S)
     text = out.value.decode("utf-8", "replace")
     if text.startswith("#ERROR:"):
-        parts = text[len("#ERROR:"):].split(":", 1)
+        parts = text[len("#ERROR:") :].split(":", 1)
         return "", parts[0].strip()
     return "", None
 

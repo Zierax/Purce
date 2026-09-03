@@ -31,12 +31,14 @@ class TestRuntimeSmokeCompile(unittest.TestCase):
             obj = Path(d) / "runtime.o"
             src.write_text(RUNTIME_C_SOURCE, encoding="utf-8")
             proc = subprocess.run(
-                [cc, "-std=c99", "-Wall", "-Werror", "-O2", "-c",
-                 str(src), "-o", str(obj)],
-                capture_output=True, text=True, check=False,
+                [cc, "-std=c99", "-Wall", "-Werror", "-O2", "-c", str(src), "-o", str(obj)],
+                capture_output=True,
+                text=True,
+                check=False,
             )
             self.assertEqual(
-                proc.returncode, 0,
+                proc.returncode,
+                0,
                 msg=f"runtime C source failed to compile:\n{proc.stdout}\n{proc.stderr}",
             )
 

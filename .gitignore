@@ -24,3 +24,10 @@ models.json
 test_output.txt
 out_q31/
 purce/runtime/build/
+benchmarks/hardened/results/
+benchmarks/results.md
+check_*.py
+debug_*.py
+test_three.py
+fix_*.py
+add_*.py

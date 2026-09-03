@@ -1,12 +1,16 @@
 """Registry for Purce kernels — single source of truth for mappings and bodies."""
+
 from __future__ import annotations
 
+from purce.backend.c99_generator import (
+    BODY_PARAM_MAP as _BPM,
+    DERIVED_PARAMS as _DP,
+    MATH_KERNEL_BODIES as _MKB,
+)
 from purce.ir.nodes import Dtype
 
 # Kernels that have a body entry but are intentionally incomplete stubs.
-_STUB_ALGORITHMS: frozenset[str] = frozenset(
-    {"linalg_eig", "linalg_qr", "linalg_svd", "array_split"}
-)
+_STUB_ALGORITHMS: frozenset[str] = frozenset()
 
 DTYPE_TO_C = {
     Dtype.FLOAT32: "float",
@@ -29,12 +33,6 @@ DTYPE_TO_C = {
 # NOTE: The canonical definitions live in c99_generator.py; this file re-exports
 # them for the split. During the transition, both files contain copies.
 # The next commit will make c99_generator import from here.
-
-from purce.backend.c99_generator import (
-    BODY_PARAM_MAP as _BPM,
-    DERIVED_PARAMS as _DP,
-    MATH_KERNEL_BODIES as _MKB,
-)
 
 BODY_PARAM_MAP = _BPM
 DERIVED_PARAMS = _DP

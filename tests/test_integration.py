@@ -6,6 +6,7 @@ These tests exercise the complete purce pipeline end-to-end:
 Each test constructs a Python source string, runs it through every stage,
 and asserts correctness of the intermediate and final artifacts.
 """
+
 from __future__ import annotations
 
 import os
@@ -47,7 +48,7 @@ def _run_pipeline(
 
 
 def _has_c_function(content: str) -> bool:
-    return bool(re.search(r'\b(void|int|double|float)\s+\w+\s*\(', content))
+    return bool(re.search(r"\b(void|int|double|float)\s+\w+\s*\(", content))
 
 
 # ── Single-operation pipelines ───────────────────────────────────────────────
@@ -104,6 +105,7 @@ class TestPipelineElementAdd:
 
     def test_provenance_json_valid(self) -> None:
         import json
+
         gen, _, _ = _run_pipeline(self.SRC)
         prov_files = [f for f in gen.files if f.file_type == "prov"]
         prov = json.loads(prov_files[0].content)
@@ -149,15 +151,18 @@ class TestPipelineReduceSum:
 
 
 class TestPipelineElementUnary:
-    @pytest.mark.parametrize("op_name,op_call", [
-        ("sqrt", "np.sqrt"),
-        ("exp", "np.exp"),
-        ("log", "np.log"),
-        ("sin", "np.sin"),
-        ("cos", "np.cos"),
-        ("abs", "np.abs"),
-        ("tan", "np.tan"),
-    ])
+    @pytest.mark.parametrize(
+        "op_name,op_call",
+        [
+            ("sqrt", "np.sqrt"),
+            ("exp", "np.exp"),
+            ("log", "np.log"),
+            ("sin", "np.sin"),
+            ("cos", "np.cos"),
+            ("abs", "np.abs"),
+            ("tan", "np.tan"),
+        ],
+    )
     def test_unary_op_generates_c(self, op_name: str, op_call: str) -> None:
         src = f"import numpy as np\ndef my_{op_name}(x):\n    return {op_call}(x)"
         gen, _, _ = _run_pipeline(src)
@@ -170,11 +175,14 @@ class TestPipelineElementUnary:
 
 
 class TestPipelineAllocOps:
-    @pytest.mark.parametrize("op_name,op_call", [
-        ("zeros", "np.zeros"),
-        ("ones", "np.ones"),
-        ("eye", "np.eye"),
-    ])
+    @pytest.mark.parametrize(
+        "op_name,op_call",
+        [
+            ("zeros", "np.zeros"),
+            ("ones", "np.ones"),
+            ("eye", "np.eye"),
+        ],
+    )
     def test_alloc_op_generates_c(self, op_name: str, op_call: str) -> None:
         src = f"import numpy as np\ndef my_{op_name}(n):\n    return {op_call}(n)"
         gen, _, _ = _run_pipeline(src)

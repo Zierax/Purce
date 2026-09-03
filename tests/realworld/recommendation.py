@@ -20,7 +20,9 @@ def matrix_factorization_loss(R, P, Q, lambda_reg=0.01):
 
 
 def bpr_loss(pos_scores, neg_scores):
-    return np.negative(np.mean(np.log(np.add(np.sigmoid(np.subtract(pos_scores, neg_scores)), 1e-8))))
+    return np.negative(
+        np.mean(np.log(np.add(np.sigmoid(np.subtract(pos_scores, neg_scores)), 1e-8)))
+    )
 
 
 def triplet_loss(anchor, positive, negative, margin=1.0):

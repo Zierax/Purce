@@ -88,18 +88,15 @@ class TestCoverageSweepRuntime:
 
     def test_all_reference_backed_kernels_match_numpy(self, sweep_report) -> None:
         failures = [
-            o.algorithm for o in sweep_report.outcomes
-            if not o.ok and o.mode == "reference"
+            o.algorithm for o in sweep_report.outcomes if not o.ok and o.mode == "reference"
         ]
         assert failures == []
 
     def test_all_structural_kernels_satisfy_documented_invariants(
-        self, sweep_report,
+        self,
+        sweep_report,
     ) -> None:
-        failures = [
-            o.algorithm for o in sweep_report.outcomes
-            if not o.ok and o.mode == "smoke"
-        ]
+        failures = [o.algorithm for o in sweep_report.outcomes if not o.ok and o.mode == "smoke"]
         assert failures == []
 
     def test_sweep_fully_passes(self, sweep_report) -> None:
@@ -122,9 +119,14 @@ class TestRngWiring:
                 role_used = True
             else:
                 role = None
-            contents.append(generator._generate_c_file(
-                node, "rng_wire", _EPOCH, role,
-            ))
+            contents.append(
+                generator._generate_c_file(
+                    node,
+                    "rng_wire",
+                    _EPOCH,
+                    role,
+                )
+            )
             algo_by_node[node.node_id] = node.algorithm
         executor = eq.GeneratedKernelExecutor(contents, algo_by_node)
         executor.build()
@@ -135,8 +137,9 @@ class TestRngWiring:
         generator = C99Generator(target_profile="generic-c99")
         c = generator._generate_c_file(node, "rng_wire", _EPOCH, "extern")
         fname, params = eq.parse_kernel_signature(c)
-        driver = eq._Driver(node.algorithm, node, executor._lib, fname, params,
-                            ref_fn=None, op=None)
+        driver = eq._Driver(
+            node.algorithm, node, executor._lib, fname, params, ref_fn=None, op=None
+        )
         out_names = [p.name for p in params if driver._is_output(p.name)]
         return driver.call(inputs, out_names)
 
@@ -172,9 +175,7 @@ class TestSpecificRegressions:
     """Focused checks for defects the sweep exposed (before this change)."""
 
     def test_array_unique_matches_numpy(self) -> None:
-        node, content = next(
-            (n, c) for n, c in cs.build_kernels() if n.algorithm == "array_unique"
-        )
+        node, content = next((n, c) for n, c in cs.build_kernels() if n.algorithm == "array_unique")
         executor = eq.GeneratedKernelExecutor([content], {node.node_id: node.algorithm})
         executor.build()
         try:
@@ -187,6 +188,7 @@ class TestSpecificRegressions:
         # Regression: the equivalence case builder previously omitted log_n,
         # so the C bit-reversal stage never ran.
         import random
+
         node = _make_node("fft")
         case = eq._make_case("fft", node, random.Random(42))
         assert "log_n" in case
@@ -195,6 +197,7 @@ class TestSpecificRegressions:
 
     def test_searchsorted_is_sorted_and_scalar_output(self) -> None:
         import random
+
         node = _make_node("array_searchsorted")
         case = eq._make_case("array_searchsorted", node, random.Random(42))
         assert np.all(np.diff(case["x"]) >= 0.0) or case["x"].size == 1

@@ -7,7 +7,9 @@ def exponential_moving_average(data, alpha=0.3):
     ema = np.zeros_like(data)
     ema[0] = data[0]
     for t in range(1, len(data)):
-        ema[t] = np.add(np.multiply(alpha, data[t]), np.multiply(np.subtract(1.0, alpha), ema[t - 1]))
+        ema[t] = np.add(
+            np.multiply(alpha, data[t]), np.multiply(np.subtract(1.0, alpha), ema[t - 1])
+        )
     return ema
 
 
@@ -15,7 +17,7 @@ def simple_moving_average(data, window):
     result = np.zeros_like(data)
     for i in range(len(data)):
         start = max(0, i - window + 1)
-        result[i] = np.mean(data[start:i + 1])
+        result[i] = np.mean(data[start : i + 1])
     return result
 
 
@@ -42,8 +44,11 @@ def autocorrelation(data, max_lag):
     var = np.var(data)
     result = np.zeros(max_lag)
     for lag in range(max_lag):
-        cov = np.mean(np.multiply(np.subtract(data[:-lag] if lag > 0 else data, mean),
-                                  np.subtract(data[lag:], mean)))
+        cov = np.mean(
+            np.multiply(
+                np.subtract(data[:-lag] if lag > 0 else data, mean), np.subtract(data[lag:], mean)
+            )
+        )
         result[lag] = np.divide(cov, np.add(var, 1e-8))
     return result
 
@@ -74,10 +79,9 @@ def dtw_distance(s1, s2):
     for i in range(1, n + 1):
         for j in range(1, m + 1):
             cost = np.abs(np.subtract(s1[i - 1], s2[j - 1]))
-            dtw[i, j] = np.add(cost, np.minimum(
-                np.minimum(dtw[i - 1, j], dtw[i, j - 1]),
-                dtw[i - 1, j - 1]
-            ))
+            dtw[i, j] = np.add(
+                cost, np.minimum(np.minimum(dtw[i - 1, j], dtw[i, j - 1]), dtw[i - 1, j - 1])
+            )
     return dtw[n, m]
 
 

@@ -108,8 +108,7 @@ def matrix_power(A: np.ndarray, p: float, terms: int = 30) -> np.ndarray:
     eigvals = _approximate_eigenvalues(A, terms)
     eigvecs = np.eye(A.shape[0])
     powered_eigvals = np.power(eigvals, p)
-    return np.matmul(np.matmul(eigvecs, np.diag(powered_eigvals)),
-                     np.linalg.inv(eigvecs))
+    return np.matmul(np.matmul(eigvecs, np.diag(powered_eigvals)), np.linalg.inv(eigvecs))
 
 
 def kronecker_product(A: np.ndarray, B: np.ndarray) -> np.ndarray:
@@ -119,7 +118,7 @@ def kronecker_product(A: np.ndarray, B: np.ndarray) -> np.ndarray:
     result = np.zeros((m * p, n * q))
     for i in range(m):
         for j in range(n):
-            result[i*p:(i+1)*p, j*q:(j+1)*q] = np.multiply(A[i, j], B)
+            result[i * p : (i + 1) * p, j * q : (j + 1) * q] = np.multiply(A[i, j], B)
     return result
 
 

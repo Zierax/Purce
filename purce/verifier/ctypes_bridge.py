@@ -3,6 +3,7 @@
 Compiles generated C99 kernel code into a shared library,
 loads it via ctypes, and provides typed call interfaces for each operation.
 """
+
 from __future__ import annotations
 
 import ctypes
@@ -19,6 +20,7 @@ from purce.backend.c99_generator import BODY_PARAM_MAP, MATH_KERNEL_BODIES
 @dataclass
 class CompiledKernels:
     """Handle to a compiled shared library of C99 kernels."""
+
     lib: ctypes.CDLL
     lib_path: str
     temp_dir: str
@@ -72,14 +74,31 @@ def _make_kernel_wrapper(name: str) -> str:
 # Kernels that have a ctypes-callable wrapper in _C_SOURCE_WRAPPERS.
 # Only these need to be compiled into the shared library.
 _WRAPPED_KERNELS = {
-    "element_add", "element_sub", "element_mul", "element_div",
-    "reduce_sum", "reduce_mean", "reduce_max", "reduce_min",
-    "element_abs", "element_sqrt", "element_exp", "element_log",
-    "element_sin", "element_cos", "element_tan",
+    "element_add",
+    "element_sub",
+    "element_mul",
+    "element_div",
+    "reduce_sum",
+    "reduce_mean",
+    "reduce_max",
+    "reduce_min",
+    "element_abs",
+    "element_sqrt",
+    "element_exp",
+    "element_log",
+    "element_sin",
+    "element_cos",
+    "element_tan",
     "matmul",
-    "linalg_solve", "linalg_inv", "linalg_cholesky", "linalg_eig",
-    "fft", "ifft",
-    "alloc_zeros", "alloc_ones", "alloc_eye",
+    "linalg_solve",
+    "linalg_inv",
+    "linalg_cholesky",
+    "linalg_eig",
+    "fft",
+    "ifft",
+    "alloc_zeros",
+    "alloc_ones",
+    "alloc_eye",
 }
 
 
@@ -139,9 +158,7 @@ def _find_gcc() -> str:
         path = shutil.which(name)
         if path:
             return path
-    raise RuntimeError(
-        "gcc not found. Install MinGW-w64 or add gcc to PATH."
-    )
+    raise RuntimeError("gcc not found. Install MinGW-w64 or add gcc to PATH.")
 
 
 def compile_kernels() -> CompiledKernels:
@@ -198,7 +215,15 @@ def _configure_signatures(lib: ctypes.CDLL) -> None:
         getattr(lib, fn_name).restype = None
         getattr(lib, fn_name).argtypes = [arr, i32, dbl_ptr]
 
-    unary_fns = ["purce_abs", "purce_sqrt", "purce_exp", "purce_log", "purce_sin", "purce_cos", "purce_tan"]
+    unary_fns = [
+        "purce_abs",
+        "purce_sqrt",
+        "purce_exp",
+        "purce_log",
+        "purce_sin",
+        "purce_cos",
+        "purce_tan",
+    ]
     for fn_name in unary_fns:
         getattr(lib, fn_name).restype = None
         getattr(lib, fn_name).argtypes = [arr, arr, i32]

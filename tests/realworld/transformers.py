@@ -54,9 +54,7 @@ def transformer_encoder_block(x, n_heads, d_ff):
     Q = np.ones((d_model, d_model))
     K = np.ones((d_model, d_model))
     V = np.ones((d_model, d_model))
-    attn_out = scaled_dot_product_attention(
-        np.matmul(x, Q), np.matmul(x, K), np.matmul(x, V)
-    )
+    attn_out = scaled_dot_product_attention(np.matmul(x, Q), np.matmul(x, K), np.matmul(x, V))
     x = np.add(x, attn_out)
     mean = np.mean(x, axis=-1, keepdims=True)
     var = np.var(x, axis=-1, keepdims=True)

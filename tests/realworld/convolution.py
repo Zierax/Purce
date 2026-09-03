@@ -3,8 +3,9 @@
 import numpy as np
 
 
-def depthwise_conv2d(x: np.ndarray, kernel: np.ndarray,
-                     stride: int = 1, padding: int = 0) -> np.ndarray:
+def depthwise_conv2d(
+    x: np.ndarray, kernel: np.ndarray, stride: int = 1, padding: int = 0
+) -> np.ndarray:
     """Depthwise convolution: each channel has its own filter."""
     batch, in_h, in_w, channels = x.shape
     k_h, k_w, _, _ = kernel.shape
@@ -13,7 +14,7 @@ def depthwise_conv2d(x: np.ndarray, kernel: np.ndarray,
 
     if padding > 0:
         x_padded = np.zeros((batch, in_h + 2 * padding, in_w + 2 * padding, channels))
-        x_padded[:, padding:padding+in_h, padding:padding+in_w, :] = x
+        x_padded[:, padding : padding + in_h, padding : padding + in_w, :] = x
         x = x_padded
 
     output = np.zeros((batch, out_h, out_w, channels))
@@ -21,14 +22,15 @@ def depthwise_conv2d(x: np.ndarray, kernel: np.ndarray,
         for j in range(out_w):
             h_s = i * stride
             w_s = j * stride
-            patch = x[:, h_s:h_s+k_h, w_s:w_s+k_w, :]
+            patch = x[:, h_s : h_s + k_h, w_s : w_s + k_w, :]
             for c in range(channels):
                 output[:, i, j, c] = np.sum(np.multiply(patch[:, :, :, c], kernel[:, :, 0, c]))
     return output
 
 
-def separable_conv2d(x: np.ndarray, depthwise_kernel: np.ndarray,
-                     pointwise_kernel: np.ndarray) -> np.ndarray:
+def separable_conv2d(
+    x: np.ndarray, depthwise_kernel: np.ndarray, pointwise_kernel: np.ndarray
+) -> np.ndarray:
     """Separable conv: depthwise conv followed by 1x1 pointwise conv."""
     dw_out = depthwise_conv2d(x, depthwise_kernel)
     batch, h, w, channels = dw_out.shape
@@ -40,8 +42,9 @@ def separable_conv2d(x: np.ndarray, depthwise_kernel: np.ndarray,
     return output
 
 
-def transposed_conv2d(x: np.ndarray, kernel: np.ndarray,
-                      stride: int = 2, padding: int = 0) -> np.ndarray:
+def transposed_conv2d(
+    x: np.ndarray, kernel: np.ndarray, stride: int = 2, padding: int = 0
+) -> np.ndarray:
     """Transposed (fractionally strided) convolution."""
     batch, in_h, in_w, in_channels = x.shape
     k_h, k_w, out_channels, _ = kernel.shape
@@ -61,13 +64,14 @@ def transposed_conv2d(x: np.ndarray, kernel: np.ndarray,
                         if 0 <= oh < out_h and 0 <= ow < out_w:
                             for c_out in range(out_channels):
                                 output[:, oh, ow, c_out] += np.multiply(
-                                    x[:, i, j, c_in],
-                                    kernel[kh, kw, c_out, c_in])
+                                    x[:, i, j, c_in], kernel[kh, kw, c_out, c_in]
+                                )
     return output
 
 
-def dilated_conv2d(x: np.ndarray, kernel: np.ndarray, dilation: int = 2,
-                   padding: int = 0) -> np.ndarray:
+def dilated_conv2d(
+    x: np.ndarray, kernel: np.ndarray, dilation: int = 2, padding: int = 0
+) -> np.ndarray:
     """Dilated (atrous) convolution with holes."""
     batch, in_h, in_w, in_channels = x.shape
     k_h, k_w, _, out_channels = kernel.shape
@@ -77,8 +81,8 @@ def dilated_conv2d(x: np.ndarray, kernel: np.ndarray, dilation: int = 2,
     out_w = (in_w + 2 * padding - effective_w) // 1 + 1
 
     if padding > 0:
-        x_padded = np.zeros((batch, in_h + 2*padding, in_w + 2*padding, in_channels))
-        x_padded[:, padding:padding+in_h, padding:padding+in_w, :] = x
+        x_padded = np.zeros((batch, in_h + 2 * padding, in_w + 2 * padding, in_channels))
+        x_padded[:, padding : padding + in_h, padding : padding + in_w, :] = x
         x = x_padded
 
     output = np.zeros((batch, out_h, out_w, out_channels))
@@ -117,6 +121,6 @@ def grouped_conv2d(x: np.ndarray, kernel: np.ndarray, groups: int = 2) -> np.nda
                     for kh in range(k_h):
                         for kw in range(k_w):
                             for ci in range(channels_per_group):
-                                val += x[:, i+kh, j+kw, ci_start+ci] * kernel[kh, kw, ci, co]
-                    output[:, i, j, co_start+co] = val
+                                val += x[:, i + kh, j + kw, ci_start + ci] * kernel[kh, kw, ci, co]
+                    output[:, i, j, co_start + co] = val
     return output

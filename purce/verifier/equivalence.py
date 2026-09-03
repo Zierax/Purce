@@ -25,18 +25,16 @@ import re
 import shutil
 import subprocess
 import tempfile
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Callable
 
 import numpy as np
 
 from purce.backend.c99_generator import (
     BODY_PARAM_MAP,
-    C99Generator,
     _build_body_param_mapping,
     _sanitize_name,
 )
-from purce.ir.builder import MathIRBuilder
 from purce.ir.nodes import Dtype, MathIRNode
 
 DELIM = "// ==== KERNEL ==== "
@@ -45,10 +43,10 @@ DELIM = "// ==== KERNEL ==== "
 #    a plain NumPy op (structural stubs, RNG streams, or pure allocation).
 # All linalg kernels are now verified (Householder QR, Jacobi eig/svd)
 STRUCTURAL_GAP = {
-    "alloc_random",    # LCG stream, not numpy.random distribution
+    "alloc_random",  # LCG stream, not numpy.random distribution
     "array_permutation",  # LCG-backed shuffle
-    "noop_seed",       # state-only
-    "element_finfo",   # constant, not an array op
+    "noop_seed",  # state-only
+    "element_finfo",  # constant, not an array op
 }
 
 
@@ -61,6 +59,7 @@ class _NoReference(Exception):
 
 
 # ── signature parsing ────────────────────────────────────────────────
+
 
 @dataclass(frozen=True)
 class ParamSpec:
@@ -96,8 +95,7 @@ def parse_kernel_signature(c_content: str) -> tuple[str, list[ParamSpec]]:
         tokens = raw.replace("const", " ").replace("*", " ").split()
         ctype = tokens[0] if tokens else "double"
         pname = tokens[-1] if tokens else "p"
-        params.append(ParamSpec(name=pname, ctype=ctype, is_pointer=is_pointer,
-                                is_const=is_const))
+        params.append(ParamSpec(name=pname, ctype=ctype, is_pointer=is_pointer, is_const=is_const))
     return name, params
 
 
@@ -106,6 +104,7 @@ def ctype_of(spec: ParamSpec):
 
 
 # ── input generation workloads (shapes/ranges per algorithm) ──────────
+
 
 def _rand_int(rng: random.Random, lo: int, hi: int) -> int:
     return rng.randint(lo, hi)
@@ -116,6 +115,7 @@ def _mat_shape(rng: random.Random):
 
 
 # ── NumPy references: exact intended high-level semantics ────────────
+
 
 def _operand(arrays, scalars, key):
     """Fetch an operand that may be an array or a broadcastable scalar."""
@@ -215,8 +215,7 @@ def _ref_clip(arrays, scalars, op=None) -> np.ndarray:
 def _ref_reduce(arrays, scalars, op) -> float:
     x = _operand(arrays, scalars, "x")
     if op in ("sum", "mean", "max", "min", "prod"):
-        fn = {"sum": np.sum, "mean": np.mean, "max": np.max,
-              "min": np.min, "prod": np.prod}[op]
+        fn = {"sum": np.sum, "mean": np.mean, "max": np.max, "min": np.min, "prod": np.prod}[op]
         return float(fn(x))
     if op == "var":
         return float(np.mean((x - np.mean(x)) ** 2))
@@ -407,6 +406,7 @@ def _ref_array_ops(arrays, scalars, op) -> np.ndarray:
 
 # ── comparison (IEEE-aware, mirroring fuzzer._all_close) ─────────────
 
+
 def _flatten_pair(a, b):
     """Normalize possibly-tuple values into comparable array lists."""
     if isinstance(a, tuple) or isinstance(b, tuple):
@@ -535,6 +535,7 @@ def _max_error(a, b):
 
 # ── per-kernel execution ─────────────────────────────────────────────
 
+
 @dataclass
 class KernelResult:
     node_id: str
@@ -555,8 +556,9 @@ def _expected_outputs(node: MathIRNode) -> list[str]:
 class GeneratedKernelExecutor:
     """Compile a module's generated C once, then execute each kernel."""
 
-    def __init__(self, c_files: list[str], algo_by_node: dict[str, str],
-                 keep_dir: str | None = None):
+    def __init__(
+        self, c_files: list[str], algo_by_node: dict[str, str], keep_dir: str | None = None
+    ):
         self._c_files = c_files
         self._algo_by_node = algo_by_node
         self._gcc = self._find_gcc()
@@ -584,21 +586,31 @@ class GeneratedKernelExecutor:
         cmd += [c_path, "-o", lib_path, "-lm"]
         res = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
         if res.returncode != 0:
-            raise RuntimeError(
-                f"gcc failed ({res.returncode}):\n{res.stderr[:800]}"
-            )
+            raise RuntimeError(f"gcc failed ({res.returncode}):\n{res.stderr[:800]}")
         self._lib = ctypes.CDLL(lib_path)
 
     def close(self) -> None:
         self._lib = None
 
-    def run_kernel(self, node: MathIRNode, c_content: str, seed: int,
-                   iterations: int = 25,
-                   rtol: float = 1e-5, atol: float = 1e-8) -> KernelResult:
+    def run_kernel(
+        self,
+        node: MathIRNode,
+        c_content: str,
+        seed: int,
+        iterations: int = 25,
+        rtol: float = 1e-5,
+        atol: float = 1e-8,
+    ) -> KernelResult:
         algo = node.algorithm
-        result = KernelResult(node_id=node.node_id, algorithm=algo,
-                              iterations=iterations, passed=0, failed=0,
-                              max_error=0.0, mean_error=0.0)
+        result = KernelResult(
+            node_id=node.node_id,
+            algorithm=algo,
+            iterations=iterations,
+            passed=0,
+            failed=0,
+            max_error=0.0,
+            mean_error=0.0,
+        )
         try:
             fname, params = parse_kernel_signature(c_content)
             driver = _make_driver(algo, node, self._lib, fname, params)
@@ -737,6 +749,7 @@ def _dispatch(algo: str) -> tuple[Callable, str | None]:
 
 # ── case generation (inputs + scalars per algorithm) ──────────────────
 
+
 def _uni(rng: random.Random, lo: float, hi: float, n: int) -> np.ndarray:
     return np.asarray([rng.uniform(lo, hi) for _ in range(n)], dtype=np.float64)
 
@@ -789,15 +802,15 @@ def _make_case_from_node(algo: str, node: MathIRNode, rng: random.Random) -> dic
         # Self-matmul (A @ A): both tensor operands are the same C buffer,
         # so the matrix must be square and A == B.
         try:
-            self_mat = (node.inputs[0][0] == node.inputs[1][0]
-                        or _sanitize_name(node.inputs[0][0]) == _sanitize_name(node.inputs[1][0]))
+            self_mat = node.inputs[0][0] == node.inputs[1][0] or _sanitize_name(
+                node.inputs[0][0]
+            ) == _sanitize_name(node.inputs[1][0])
         except IndexError:
             self_mat = len(input_shapes) == 1
         if self_mat:
             m = p = n = _rand_small(rng, 1, 8)
         A = _uni(rng, -100, 100, m * p)
-        case = {"A": A, "B": A if self_mat else _uni(rng, -100, 100, p * n),
-                "m": m, "p": p, "n": n}
+        case = {"A": A, "B": A if self_mat else _uni(rng, -100, 100, p * n), "m": m, "p": p, "n": n}
         for ir_name in input_shapes:
             if ir_name in (canon.get("A"), canon.get("B")):
                 continue
@@ -877,7 +890,11 @@ def _make_case_from_node(algo: str, node: MathIRNode, rng: random.Random) -> dic
                 if s2 == f"input_{idx}":
                     input_canonical = c2
                     break
-            if input_canonical and input_canonical in case and isinstance(case[input_canonical], np.ndarray):
+            if (
+                input_canonical
+                and input_canonical in case
+                and isinstance(case[input_canonical], np.ndarray)
+            ):
                 case[canonical] = float(len(case[input_canonical]))
             else:
                 case[canonical] = float(length)
@@ -897,27 +914,51 @@ def _make_case(algo: str, node: MathIRNode, rng: random.Random) -> dict[str, Any
     if special is not None:
         return special
     n = _rand_small(rng)
-    if algo in ("element_add", "element_sub", "element_mul", "element_div",
-                "element_max", "element_min", "element_power", "element_logaddexp",
-                "element_isclose", "element_greater", "element_less"):
+    if algo in (
+        "element_add",
+        "element_sub",
+        "element_mul",
+        "element_div",
+        "element_max",
+        "element_min",
+        "element_power",
+        "element_logaddexp",
+        "element_isclose",
+        "element_greater",
+        "element_less",
+    ):
         n = _rand_small(rng, 1, 64)
         return {"A": _uni(rng, -100, 100, n), "B": _uni(rng, -100, 100, n), "n": n}
     if algo == "element_where":
         n = _rand_small(rng, 1, 64)
         cond = np.asarray([rng.randint(0, 1) for _ in range(n)], dtype=np.float64)
-        return {"cond": cond, "A": _uni(rng, -100, 100, n),
-                "B": _uni(rng, -100, 100, n), "n": n}
+        return {"cond": cond, "A": _uni(rng, -100, 100, n), "B": _uni(rng, -100, 100, n), "n": n}
     if algo == "element_clip":
         n = _rand_small(rng, 1, 64)
         x = _uni(rng, -100, 100, n)
         lo = _uni(rng, -120, 0, n)
         hi = _uni(rng, 0, 120, n)
         return {"x": x, "lo": lo, "hi": hi, "n": n}
-    if algo in ("element_abs", "element_sin", "element_cos", "element_tan",
-                "element_tanh", "element_neg", "element_sign", "element_floor",
-                "element_conj", "element_angle", "element_real", "element_imag",
-                "element_copy", "element_round", "element_ceil", "element_trunc",
-                "element_isnan", "element_isinf"):
+    if algo in (
+        "element_abs",
+        "element_sin",
+        "element_cos",
+        "element_tan",
+        "element_tanh",
+        "element_neg",
+        "element_sign",
+        "element_floor",
+        "element_conj",
+        "element_angle",
+        "element_real",
+        "element_imag",
+        "element_copy",
+        "element_round",
+        "element_ceil",
+        "element_trunc",
+        "element_isnan",
+        "element_isinf",
+    ):
         n = _rand_small(rng, 1, 64)
         return {"x": _uni(rng, -100, 100, n), "n": n}
     if algo in ("element_sqrt", "element_log", "element_log10"):
@@ -926,21 +967,36 @@ def _make_case(algo: str, node: MathIRNode, rng: random.Random) -> dict[str, Any
     if algo == "element_exp":
         n = _rand_small(rng, 1, 64)
         return {"x": _uni(rng, -10, 10, n), "n": n}
-    if algo in ("reduce_sum", "reduce_mean", "reduce_max", "reduce_min",
-                "reduce_var", "reduce_prod", "reduce_argmax", "reduce_argmin",
-                "reduce_any", "reduce_all", "reduce_cumsum", "reduce_diff"):
+    if algo in (
+        "reduce_sum",
+        "reduce_mean",
+        "reduce_max",
+        "reduce_min",
+        "reduce_var",
+        "reduce_prod",
+        "reduce_argmax",
+        "reduce_argmin",
+        "reduce_any",
+        "reduce_all",
+        "reduce_cumsum",
+        "reduce_diff",
+    ):
         n = _rand_small(rng, 1, 128)
         return {"x": _uni(rng, -1000, 1000, n), "n": n}
     if algo == "matmul":
         m, p, n = _rand_small(rng, 1, 16), _rand_small(rng, 1, 16), _rand_small(rng, 1, 16)
-        return {"A": _uni(rng, -100, 100, m * p), "B": _uni(rng, -100, 100, p * n),
-                "m": m, "n": n, "p": p}
+        return {
+            "A": _uni(rng, -100, 100, m * p),
+            "B": _uni(rng, -100, 100, p * n),
+            "m": m,
+            "n": n,
+            "p": p,
+        }
     if algo == "alloc_random":
         # n >= 2: a single-element draw is not a stream and cannot be checked
         # for variation (the earlier 1..64 range produced e.g. size-1 buffers).
         return {"n": _rand_small(rng, 2, 64)}
-    if algo in ("alloc_zeros", "alloc_ones", "alloc_arange", "alloc_linspace",
-                "alloc_full"):
+    if algo in ("alloc_zeros", "alloc_ones", "alloc_arange", "alloc_linspace", "alloc_full"):
         n = _rand_small(rng, 1, 64)
         return {"n": n}
     if algo == "alloc_eye":
@@ -988,23 +1044,39 @@ def _make_case(algo: str, node: MathIRNode, rng: random.Random) -> dict[str, Any
         return {"_dummy": _uni(rng, 0, 1, 1), "n": 1}
     if algo in ("fft", "ifft"):
         exp = _rand_small(rng, 1, 8)
-        n2 = 2 ** exp
-        return {"real": _uni(rng, -10, 10, n2), "imag": _uni(rng, -10, 10, n2),
-                "n": n2, "log_n": exp}
+        n2 = 2**exp
+        return {
+            "real": _uni(rng, -10, 10, n2),
+            "imag": _uni(rng, -10, 10, n2),
+            "n": n2,
+            "log_n": exp,
+        }
     if algo == "array_concat":
         n_a, n_b = _rand_small(rng, 1, 16), _rand_small(rng, 1, 16)
-        return {"A": _uni(rng, -100, 100, n_a), "B": _uni(rng, -100, 100, n_b),
-                "n_a": n_a, "n_b": n_b}
+        return {
+            "A": _uni(rng, -100, 100, n_a),
+            "B": _uni(rng, -100, 100, n_b),
+            "n_a": n_a,
+            "n_b": n_b,
+        }
     if algo == "array_take":
         n = _rand_small(rng, 1, 32)
         k = _rand_small(rng, 1, 32)
         x = _uni(rng, -100, 100, n)
-        idx = np.asarray([rng.randint(0, n - 1) if n > 1 else 0 for _ in range(k)],
-                         dtype=np.float64)
+        idx = np.asarray(
+            [rng.randint(0, n - 1) if n > 1 else 0 for _ in range(k)], dtype=np.float64
+        )
         return {"x": x, "idx": idx, "n": n, "k": k}
-    if algo in ("array_sort", "array_argsort", "array_permutation", "array_flip",
-                "array_reshape", "array_squeeze", "array_expand_dims",
-                "array_flatten"):
+    if algo in (
+        "array_sort",
+        "array_argsort",
+        "array_permutation",
+        "array_flip",
+        "array_reshape",
+        "array_squeeze",
+        "array_expand_dims",
+        "array_flatten",
+    ):
         n2 = _rand_small(rng, 1, 64)
         return {"x": _uni(rng, -100, 100, n2), "n": n2}
     if algo == "array_split":
@@ -1032,8 +1104,11 @@ def _make_case(algo: str, node: MathIRNode, rng: random.Random) -> dict[str, Any
     if algo == "loop_concat":
         n_iters = _rand_small(rng, 2, 4)
         per_iter = _rand_small(rng, 1, 8)
-        return {"x": _uni(rng, -100, 100, per_iter), "n_iters": np.asarray([n_iters], dtype=np.float64),
-                "n": per_iter * n_iters}
+        return {
+            "x": _uni(rng, -100, 100, per_iter),
+            "n_iters": np.asarray([n_iters], dtype=np.float64),
+            "n": per_iter * n_iters,
+        }
     if algo == "array_literal":
         n2 = _rand_small(rng, 1, 32)
         return {"x": _uni(rng, -100, 100, n2), "n": n2}
@@ -1042,13 +1117,15 @@ def _make_case(algo: str, node: MathIRNode, rng: random.Random) -> dict[str, Any
 
 # ── ctypes call ───────────────────────────────────────────────────────
 
+
 def _ct_arr(values) -> Any:
     arr = (ctypes.c_double * len(values))(*[float(v) for v in values])
     return arr
 
 
-def _make_driver(algo: str, node: MathIRNode, lib: ctypes.CDLL, fname: str,
-                 params: list[ParamSpec]):
+def _make_driver(
+    algo: str, node: MathIRNode, lib: ctypes.CDLL, fname: str, params: list[ParamSpec]
+):
     """Build a callable driver for one generated kernel."""
     ref_fn, op = _dispatch(algo)
     return _Driver(algo, node, lib, fname, params, ref_fn, op)
@@ -1057,8 +1134,16 @@ def _make_driver(algo: str, node: MathIRNode, lib: ctypes.CDLL, fname: str,
 class _Driver:
     """Binds a generated C kernel to case generation + NumPy reference."""
 
-    def __init__(self, algo: str, node: MathIRNode, lib: ctypes.CDLL, fname: str,
-                 params: list[ParamSpec], ref_fn, op: str | None):
+    def __init__(
+        self,
+        algo: str,
+        node: MathIRNode,
+        lib: ctypes.CDLL,
+        fname: str,
+        params: list[ParamSpec],
+        ref_fn,
+        op: str | None,
+    ):
         self._algo = algo
         self._node = node
         self._lib = lib
@@ -1149,8 +1234,7 @@ class _Driver:
                 if values is None:
                     values = inputs.get(p.name)
                 ctype = _CTYPE_MAP.get(p.ctype, ctypes.c_double)
-                if ctype in (ctypes.c_int, ctypes.c_int32, ctypes.c_int64,
-                             ctypes.c_uint32):
+                if ctype in (ctypes.c_int, ctypes.c_int32, ctypes.c_int64, ctypes.c_uint32):
                     args.append(int(values) if values is not None else 0)
                 else:
                     args.append(float(values) if values is not None else 0.0)
@@ -1193,20 +1277,43 @@ class _Driver:
 
     def _output_size(self, inputs: dict[str, Any]) -> int:
         algo = self._algo
-        if algo in ("reduce_sum", "reduce_mean", "reduce_max", "reduce_min",
-                    "reduce_var", "reduce_prod", "reduce_argmax", "reduce_argmin",
-                    "reduce_any", "reduce_all", "linalg_norm", "linalg_det",
-                    "element_finfo"):
+        if algo in (
+            "reduce_sum",
+            "reduce_mean",
+            "reduce_max",
+            "reduce_min",
+            "reduce_var",
+            "reduce_prod",
+            "reduce_argmax",
+            "reduce_argmin",
+            "reduce_any",
+            "reduce_all",
+            "linalg_norm",
+            "linalg_det",
+            "element_finfo",
+        ):
             return 1
         if algo in ("linalg_eig",):
             return int(inputs["n"])
         if algo in ("matmul",):
             return int(inputs["m"]) * int(inputs["n"])
-        if algo in ("alloc_zeros", "alloc_ones", "alloc_arange", "alloc_linspace",
-                    "alloc_full", "alloc_random"):
+        if algo in (
+            "alloc_zeros",
+            "alloc_ones",
+            "alloc_arange",
+            "alloc_linspace",
+            "alloc_full",
+            "alloc_random",
+        ):
             return int(inputs["n"])
-        if algo in ("alloc_eye", "matrix_diag_from", "matrix_tril", "matrix_triu",
-                    "linalg_inv", "linalg_cholesky"):
+        if algo in (
+            "alloc_eye",
+            "matrix_diag_from",
+            "matrix_tril",
+            "matrix_triu",
+            "linalg_inv",
+            "linalg_cholesky",
+        ):
             return int(inputs["n"]) * int(inputs["n"])
         if algo in ("matrix_diag", "linalg_solve"):
             return int(inputs["n"])

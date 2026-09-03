@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import os
 import tempfile
 
 import pytest
 
 from purce.backend.c99_generator import C99Generator
 from purce.ir.builder import MathIRBuilder
-from purce.ir.nodes import Dtype, Effect, MathIRGraph, MathIRNode
+from purce.ir.nodes import Dtype, Effect, MathIRNode
 from purce.parser.python_parser import PythonParser
 from purce.slicer.semantic_slicer import SemanticSlicer
 

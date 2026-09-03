@@ -29,7 +29,9 @@ class TestCLIExtract:
         assert "purce extract" in result.output
         assert "Done" in result.output
 
-    def test_extract_with_verbose(self, runner: CliRunner, fixtures_dir: str, tmp_path: object) -> None:
+    def test_extract_with_verbose(
+        self, runner: CliRunner, fixtures_dir: str, tmp_path: object
+    ) -> None:
         out_dir = str(tmp_path) + "/out"
         result = runner.invoke(main, ["extract", fixtures_dir, "-o", out_dir, "--verbose"])
         assert result.exit_code == 0
@@ -42,14 +44,20 @@ class TestCLIExtract:
         assert result.exit_code == 1
         assert "No Python files" in result.output
 
-    def test_extract_provenance_only(self, runner: CliRunner, fixtures_dir: str, tmp_path: object) -> None:
+    def test_extract_provenance_only(
+        self, runner: CliRunner, fixtures_dir: str, tmp_path: object
+    ) -> None:
         out_dir = str(tmp_path) + "/out"
         result = runner.invoke(main, ["extract", fixtures_dir, "-o", out_dir, "--provenance-only"])
         assert result.exit_code == 0
 
-    def test_extract_fixed_point(self, runner: CliRunner, fixtures_dir: str, tmp_path: object) -> None:
+    def test_extract_fixed_point(
+        self, runner: CliRunner, fixtures_dir: str, tmp_path: object
+    ) -> None:
         out_dir = str(tmp_path) + "/out"
-        result = runner.invoke(main, ["extract", fixtures_dir, "-o", out_dir, "--target", "bare-arm-q31"])
+        result = runner.invoke(
+            main, ["extract", fixtures_dir, "-o", out_dir, "--target", "bare-arm-q31"]
+        )
         assert result.exit_code == 0
 
 
@@ -61,7 +69,9 @@ class TestCLICompile:
         assert "purce compile" in result.output
         assert "Done" in result.output
 
-    def test_compile_with_verify(self, runner: CliRunner, fixtures_dir: str, tmp_path: object) -> None:
+    def test_compile_with_verify(
+        self, runner: CliRunner, fixtures_dir: str, tmp_path: object
+    ) -> None:
         out_dir = str(tmp_path) + "/out"
         result = runner.invoke(main, ["compile", fixtures_dir, "-o", out_dir, "--verify"])
         assert result.exit_code == 0
@@ -86,7 +96,9 @@ class TestCLIVersion:
 
 
 class TestCLIOutputStructure:
-    def test_output_has_all_files(self, runner: CliRunner, fixtures_dir: str, tmp_path: object) -> None:
+    def test_output_has_all_files(
+        self, runner: CliRunner, fixtures_dir: str, tmp_path: object
+    ) -> None:
         out_dir = str(tmp_path) + "/out"
         runner.invoke(main, ["extract", fixtures_dir, "-o", out_dir])
 
@@ -105,7 +117,9 @@ class TestCLIOutputStructure:
         assert len(prov_files) >= 1
         assert len(cmake_files) == 1
 
-    def test_provenance_json_valid(self, runner: CliRunner, fixtures_dir: str, tmp_path: object) -> None:
+    def test_provenance_json_valid(
+        self, runner: CliRunner, fixtures_dir: str, tmp_path: object
+    ) -> None:
         out_dir = str(tmp_path) + "/out"
         runner.invoke(main, ["extract", fixtures_dir, "-o", out_dir])
 
@@ -119,7 +133,9 @@ class TestCLIOutputStructure:
                     assert "ir_node" in prov
                     assert "memory" in prov
 
-    def test_c99_files_have_standard_headers(self, runner: CliRunner, fixtures_dir: str, tmp_path: object) -> None:
+    def test_c99_files_have_standard_headers(
+        self, runner: CliRunner, fixtures_dir: str, tmp_path: object
+    ) -> None:
         out_dir = str(tmp_path) + "/out"
         runner.invoke(main, ["extract", fixtures_dir, "-o", out_dir])
 

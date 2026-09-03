@@ -30,37 +30,23 @@ def _build(source: str, module: str = "covmod") -> MathIRBuilder:
 
 class TestDtypeAnnotations:
     def test_name_bool_annotation_returns_bool(self) -> None:
-        builder = _build(
-            "import numpy as np\n"
-            "def bf(x: bool):\n"
-            "    return np.sin(x)\n"
-        )
+        builder = _build("import numpy as np\ndef bf(x: bool):\n    return np.sin(x)\n")
         node = next(iter(builder.graph.nodes.values()))
         assert node.input_dtypes() == [Dtype.BOOL]
 
     def test_name_complex_annotation_returns_complex128(self) -> None:
-        builder = _build(
-            "import numpy as np\n"
-            "def cf(z: complex):\n"
-            "    return np.sqrt(z)\n"
-        )
+        builder = _build("import numpy as np\ndef cf(z: complex):\n    return np.sqrt(z)\n")
         node = next(iter(builder.graph.nodes.values()))
         assert node.input_dtypes() == [Dtype.COMPLEX128]
 
     def test_attribute_dtype_annotation_uses_dtype_map(self) -> None:
-        builder = _build(
-            "import numpy as np\n"
-            "def af(x: np.float32):\n"
-            "    return np.abs(x)\n"
-        )
+        builder = _build("import numpy as np\ndef af(x: np.float32):\n    return np.abs(x)\n")
         node = next(iter(builder.graph.nodes.values()))
         assert node.input_dtypes() == [Dtype.FLOAT32]
 
     def test_unknown_annotations_fall_back_to_float64(self) -> None:
         builder = _build(
-            "import numpy as np\n"
-            "def uf(x: MyType, y: np.notadtype):\n"
-            "    return np.add(x, y)\n"
+            "import numpy as np\ndef uf(x: MyType, y: np.notadtype):\n    return np.add(x, y)\n"
         )
         node = next(iter(builder.graph.nodes.values()))
         assert node.input_dtypes() == [Dtype.FLOAT64, Dtype.FLOAT64]
@@ -82,28 +68,19 @@ class TestNestedLocalDetection:
 
     def test_recursion_pass_finds_direct_numpy_arg(self) -> None:
         bld = MathIRBuilder()
-        local_funcs = _local_funcs(
-            "def helper(x):\n"
-            "    return np.add(np.exp(x), x)\n"
-        )
+        local_funcs = _local_funcs("def helper(x):\n    return np.add(np.exp(x), x)\n")
         call = _from_attr("np.subtract(a, helper(b))")
         assert bld._has_nested_numpy_calls(call, local_funcs) is True
 
     def test_second_pass_attribute_inner_arg(self) -> None:
         bld = MathIRBuilder()
-        local_funcs = _local_funcs(
-            "def helper(x):\n"
-            "    return np.add(x, np.unknown_thing(x))\n"
-        )
+        local_funcs = _local_funcs("def helper(x):\n    return np.add(x, np.unknown_thing(x))\n")
         call = _from_attr("np.multiply(a, helper(b))")
         assert bld._has_nested_numpy_calls(call, local_funcs) is False
 
     def test_second_pass_name_inner_arg(self) -> None:
         bld = MathIRBuilder()
-        local_funcs = _local_funcs(
-            "def helper(x):\n"
-            "    return np.add(x, unknown_name(y))\n"
-        )
+        local_funcs = _local_funcs("def helper(x):\n    return np.add(x, unknown_name(y))\n")
         call = _from_attr("np.multiply(a, helper(b))")
         assert bld._has_nested_numpy_calls(call, local_funcs) is False
 
@@ -129,7 +106,9 @@ class TestArgResolution:
         bld = MathIRBuilder()
         scalar: dict[str, float] = {}
         existing = {"x"}
-        result = bld._resolve_arg_to_name(ast.Constant(2.5), [("x", Dtype.FLOAT64, "array")], scalar, {}, existing)
+        result = bld._resolve_arg_to_name(
+            ast.Constant(2.5), [("x", Dtype.FLOAT64, "array")], scalar, {}, existing
+        )
         assert result == ("_const_0", Dtype.FLOAT64, "scalar")
         assert scalar["_const_0"] == 2.5
         assert "_const_0" in existing
@@ -151,15 +130,13 @@ class TestArgResolution:
         assert scalar["_const_0"] == 3.0
 
     def test_transpose_on_registered_input(self) -> None:
-        result = self._resolve(_from_attr("a.T"),[("a", Dtype.FLOAT64, "array")], {"a"})
+        result = self._resolve(_from_attr("a.T"), [("a", Dtype.FLOAT64, "array")], {"a"})
         assert result == ("a", Dtype.FLOAT64, "array")
 
     def test_transpose_on_intermediate(self) -> None:
         bld = MathIRBuilder()
         scalar: dict[str, float] = {}
-        result = bld._resolve_arg_to_name(
-            _from_attr("b.T"), [], scalar, {"b": "inter_0"}, set()
-        )
+        result = bld._resolve_arg_to_name(_from_attr("b.T"), [], scalar, {"b": "inter_0"}, set())
         assert result == ("inter_0", Dtype.FLOAT64, "array")
 
     def test_np_pi_attribute_becomes_const(self) -> None:
@@ -209,9 +186,7 @@ class TestArgResolution:
     def test_unary_neg_intermediate_uses_minus_one(self) -> None:
         bld = MathIRBuilder()
         scalar: dict[str, float] = {}
-        result = bld._resolve_arg_to_name(
-            _unary_neg("b"), [], scalar, {"b": "b_0"}, set()
-        )
+        result = bld._resolve_arg_to_name(_unary_neg("b"), [], scalar, {"b": "b_0"}, set())
         assert result == ("_const_0", Dtype.FLOAT64, "scalar")
         assert scalar["_const_0"] == -1.0
 
@@ -240,10 +215,7 @@ class TestArgResolution:
 class TestEndpointBehavior:
     def test_print_marks_io_effect(self) -> None:
         builder = _build(
-            "import numpy as np\n"
-            "def noisy(x, y):\n"
-            "    print(x)\n"
-            "    return np.add(x, y)\n"
+            "import numpy as np\ndef noisy(x, y):\n    print(x)\n    return np.add(x, y)\n"
         )
         node = next(iter(builder.graph.nodes.values()))
         assert Effect.IO in node.effects
@@ -270,9 +242,7 @@ class TestEndpointBehavior:
 
     def test_composed_multi_op_graph(self) -> None:
         builder = _build(
-            "import numpy as np\n"
-            "def comp(a, b):\n"
-            "    return np.subtract(np.multiply(a, b), 3.5)\n"
+            "import numpy as np\ndef comp(a, b):\n    return np.subtract(np.multiply(a, b), 3.5)\n"
         )
         nodes = list(builder.graph.nodes.values())
         assert len(nodes) == 2
@@ -282,9 +252,7 @@ class TestEndpointBehavior:
 
     def test_composed_method_call_receiver_is_kernel_input(self) -> None:
         builder = _build(
-            "import numpy as np\n"
-            "def comp(a, b):\n"
-            "    return np.multiply(a, b.transpose())\n"
+            "import numpy as np\ndef comp(a, b):\n    return np.multiply(a, b.transpose())\n"
         )
         nodes = list(builder.graph.nodes.values())
         assert len(nodes) == 2
@@ -316,19 +284,13 @@ class TestEndpointBehavior:
 
 class TestBuilderFixture:
     def test_builder_fixture_builds_node(self, builder) -> None:
-        builder.build_from_source(
-            "import numpy as np\n"
-            "def dot(a, b):\n"
-            "    return np.dot(a, b)\n"
-        )
+        builder.build_from_source("import numpy as np\ndef dot(a, b):\n    return np.dot(a, b)\n")
         node = next(iter(builder.graph.nodes.values()))
         assert node.algorithm == "matmul"
 
     def test_pipeline_end_to_end(self) -> None:
         gen_result, graph, _slice = run_pipeline(
-            "import numpy as np\n"
-            "def prod(a, b):\n"
-            "    return np.matmul(a, b)\n"
+            "import numpy as np\ndef prod(a, b):\n    return np.matmul(a, b)\n"
         )
         assert graph.nodes
         c_files = [f for f in gen_result.files if f.file_type == "c"]

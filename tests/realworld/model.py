@@ -2,28 +2,37 @@
 
 import numpy as np
 from tests.realworld.layers import (
-    dense_forward, multi_head_attention, layer_norm_forward,
-    residual_block, dropout_forward, batch_norm_forward
+    dense_forward,
+    multi_head_attention,
+    layer_norm_forward,
 )
-from tests.realworld.activations import gelu, swish
-from tests.realworld.losses import softmax_cross_entropy, label_smoothing_cross_entropy
-from tests.realworld.optimizers import adam_update, adamw_update
+from tests.realworld.activations import gelu
+from tests.realworld.losses import softmax_cross_entropy
+from tests.realworld.optimizers import adam_update
 
 
-def transformer_encoder_block(x: np.ndarray, W_qkv: np.ndarray, W_out: np.ndarray,
-                              W_ff1: np.ndarray, b_ff1: np.ndarray,
-                              W_ff2: np.ndarray, b_ff2: np.ndarray,
-                              ln1_gamma: np.ndarray, ln1_beta: np.ndarray,
-                              ln2_gamma: np.ndarray, ln2_beta: np.ndarray,
-                              n_heads: int) -> np.ndarray:
+def transformer_encoder_block(
+    x: np.ndarray,
+    W_qkv: np.ndarray,
+    W_out: np.ndarray,
+    W_ff1: np.ndarray,
+    b_ff1: np.ndarray,
+    W_ff2: np.ndarray,
+    b_ff2: np.ndarray,
+    ln1_gamma: np.ndarray,
+    ln1_beta: np.ndarray,
+    ln2_gamma: np.ndarray,
+    ln2_beta: np.ndarray,
+    n_heads: int,
+) -> np.ndarray:
     """Single transformer encoder block: attention + FFN with residual connections."""
     batch, seq_len, d_model = x.shape
 
     QKV = dense_forward(x, W_qkv, np.zeros((W_qkv.shape[1],)))
     d_head = d_model // n_heads
     Q = QKV[:, :, :d_model]
-    K = QKV[:, :, d_model:2 * d_model]
-    V = QKV[:, :, 2 * d_model:]
+    K = QKV[:, :, d_model : 2 * d_model]
+    V = QKV[:, :, 2 * d_model :]
 
     attn_out, _ = multi_head_attention(Q, K, V, n_heads)
     attn_out = dense_forward(attn_out, W_out, np.zeros((W_out.shape[1],)))
@@ -38,23 +47,33 @@ def transformer_encoder_block(x: np.ndarray, W_qkv: np.ndarray, W_out: np.ndarra
     return out
 
 
-def transformer_decoder_block(x: np.ndarray, memory: np.ndarray,
-                              W_qkv_self: np.ndarray, W_out_self: np.ndarray,
-                              W_qkv_cross: np.ndarray, W_out_cross: np.ndarray,
-                              W_ff1: np.ndarray, b_ff1: np.ndarray,
-                              W_ff2: np.ndarray, b_ff2: np.ndarray,
-                              ln1_gamma: np.ndarray, ln1_beta: np.ndarray,
-                              ln2_gamma: np.ndarray, ln2_beta: np.ndarray,
-                              ln3_gamma: np.ndarray, ln3_beta: np.ndarray,
-                              n_heads: int) -> np.ndarray:
+def transformer_decoder_block(
+    x: np.ndarray,
+    memory: np.ndarray,
+    W_qkv_self: np.ndarray,
+    W_out_self: np.ndarray,
+    W_qkv_cross: np.ndarray,
+    W_out_cross: np.ndarray,
+    W_ff1: np.ndarray,
+    b_ff1: np.ndarray,
+    W_ff2: np.ndarray,
+    b_ff2: np.ndarray,
+    ln1_gamma: np.ndarray,
+    ln1_beta: np.ndarray,
+    ln2_gamma: np.ndarray,
+    ln2_beta: np.ndarray,
+    ln3_gamma: np.ndarray,
+    ln3_beta: np.ndarray,
+    n_heads: int,
+) -> np.ndarray:
     """Transformer decoder block with self-attention + cross-attention."""
     batch, seq_len, d_model = x.shape
     d_head = d_model // n_heads
 
     QKV = dense_forward(x, W_qkv_self, np.zeros((W_qkv_self.shape[1],)))
     Q = QKV[:, :, :d_model]
-    K = QKV[:, :, d_model:2 * d_model]
-    V = QKV[:, :, 2 * d_model:]
+    K = QKV[:, :, d_model : 2 * d_model]
+    V = QKV[:, :, 2 * d_model :]
     causal_mask = np.tril(np.ones((seq_len, seq_len)))
     K_masked = np.where(causal_mask[np.newaxis, :, :], K, 0.0)
     V_masked = np.where(causal_mask[np.newaxis, :, :], V, 0.0)
@@ -87,8 +106,9 @@ def mlp_mixer_block(x: np.ndarray, W_token: np.ndarray, W_channel: np.ndarray) -
     return layer_norm_forward(np.add(h, channel_mixed), np.ones(channels), np.zeros(channels))
 
 
-def mixture_of_experts(x: np.ndarray, expert_weights: list, gating_weights: np.ndarray,
-                       top_k: int = 2) -> np.ndarray:
+def mixture_of_experts(
+    x: np.ndarray, expert_weights: list, gating_weights: np.ndarray, top_k: int = 2
+) -> np.ndarray:
     """Mixture of Experts: route inputs to top-k experts."""
     batch, seq_len, d_model = x.shape
     n_experts = len(expert_weights)
@@ -106,9 +126,10 @@ def mixture_of_experts(x: np.ndarray, expert_weights: list, gating_weights: np.n
         mask = (top_indices == e_idx).any(axis=-1).flatten()
         if mask.any():
             expert_input = flat_x[mask]
-            expert_out = dense_forward(expert_input, expert_weights[e_idx][0],
-                                       expert_weights[e_idx][1])
-            expert_gate = gate_probs.reshape(-1, n_experts)[:, e_idx:e_idx+1][mask]
+            expert_out = dense_forward(
+                expert_input, expert_weights[e_idx][0], expert_weights[e_idx][1]
+            )
+            expert_gate = gate_probs.reshape(-1, n_experts)[:, e_idx : e_idx + 1][mask]
             flat_output[mask] += np.multiply(expert_out, expert_gate)
 
     return flat_output.reshape(batch, seq_len, d_model)
@@ -120,19 +141,22 @@ def _softmax(x: np.ndarray) -> np.ndarray:
     return np.divide(exp_x, np.sum(exp_x, axis=-1, keepdims=True))
 
 
-def training_step(x: np.ndarray, targets: np.ndarray,
-                  params: dict, lr: float = 0.001, t: int = 1) -> tuple:
+def training_step(
+    x: np.ndarray, targets: np.ndarray, params: dict, lr: float = 0.001, t: int = 1
+) -> tuple:
     """Full training step: forward + backward + optimizer update."""
-    logits = dense_forward(x, params['W_out'], params['b_out'])
+    logits = dense_forward(x, params["W_out"], params["b_out"])
     loss = softmax_cross_entropy(logits, targets)
     grad = np.subtract(_softmax(logits), targets)
 
     dW_out = dense_forward(x.T, grad, np.zeros((grad.shape[1],)))
     db_out = np.sum(grad, axis=0)
 
-    params['W_out'], params['m_W'], params['v_W'] = adam_update(
-        params['W_out'], dW_out, params['m_W'], params['v_W'], t, lr)
-    params['b_out'], params['m_b'], params['v_b'] = adam_update(
-        params['b_out'], db_out, params['m_b'], params['v_b'], t, lr)
+    params["W_out"], params["m_W"], params["v_W"] = adam_update(
+        params["W_out"], dW_out, params["m_W"], params["v_W"], t, lr
+    )
+    params["b_out"], params["m_b"], params["v_b"] = adam_update(
+        params["b_out"], db_out, params["m_b"], params["v_b"], t, lr
+    )
 
     return params, float(np.mean(loss))

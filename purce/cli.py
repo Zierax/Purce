@@ -31,8 +31,9 @@ EXIT_FAILURE = 1
 EXIT_UNVERIFIED = 3
 
 
-def _resolve_entry_points(graph, entry_names: list[str] | None = None,
-                          module: str | None = None) -> list[str]:
+def _resolve_entry_points(
+    graph, entry_names: list[str] | None = None, module: str | None = None
+) -> list[str]:
     """Resolve the slicer entry points.
 
     * If ``--entry`` names are given, each must be a top-level function name;
@@ -50,17 +51,18 @@ def _resolve_entry_points(graph, entry_names: list[str] | None = None,
             # origin_symbol "<module>.<name>" to resolve a function name to its
             # root node.
             prefix = f"{module}." if module else ""
-            matched = [nid for nid in graph.entry_points
-                       if graph.nodes.get(nid) is not None
-                       and graph.nodes[nid].origin_symbol == f"{prefix}{name}"]
+            matched = [
+                nid
+                for nid in graph.entry_points
+                if graph.nodes.get(nid) is not None
+                and graph.nodes[nid].origin_symbol == f"{prefix}{name}"
+            ]
             if matched:
                 resolved.extend(matched)
             else:
                 missing.append(name)
         if missing:
-            raise click.ClickException(
-                "Unknown entry function(s): " + ", ".join(missing)
-            )
+            raise click.ClickException("Unknown entry function(s): " + ", ".join(missing))
         return resolved
 
     if graph.entry_points:
@@ -79,7 +81,9 @@ def _try_c_backend():
         fuzzer, compiled = DifferentialFuzzer.with_c_backend()
         return fuzzer, compiled
     except Exception as e:  # noqa: BLE001 - compiler may raise TimeoutExpired, FileNotFoundError, etc.
-        click.echo(f"  Warning: C backend unavailable ({e}); fuzzing will NOT test compiled C.", err=True)
+        click.echo(
+            f"  Warning: C backend unavailable ({e}); fuzzing will NOT test compiled C.", err=True
+        )
         return DifferentialFuzzer(), None
 
 
@@ -103,9 +107,16 @@ def _info(quiet: bool, message: str) -> None:
 
 
 def _process_source(
-    source_dir: str, target: str, output: str, embed_assets: bool,
-    amalgamate: bool, verbose: bool, provenance_only: bool = False,
-    verify: bool = False, quiet: bool = False, command_name: str = "purce",
+    source_dir: str,
+    target: str,
+    output: str,
+    embed_assets: bool,
+    amalgamate: bool,
+    verbose: bool,
+    provenance_only: bool = False,
+    verify: bool = False,
+    quiet: bool = False,
+    command_name: str = "purce",
     entry_names: list[str] | None = None,
 ) -> None:
     """Shared logic for extract and compile commands."""
@@ -220,7 +231,11 @@ def _process_source(
                     total_violations += 1
                     click.echo(
                         f"    VIOLATION: {nid} [{cond.name}] {cond.formula}"
-                        + (f" (counterexample: {cond.counterexample})" if cond.counterexample else "")
+                        + (
+                            f" (counterexample: {cond.counterexample})"
+                            if cond.counterexample
+                            else ""
+                        )
                     )
                 elif cond.result == "UNKNOWN":
                     _info(quiet, f"    UNKNOWN:   {nid} [{cond.name}] {cond.formula}")
@@ -230,7 +245,9 @@ def _process_source(
         # runtime guard in the generated C is invisible to the SMT solver),
         # and is covered by differential fuzzing instead.
         if total_violations:
-            click.echo(f"  Z3 verification FAILED: {total_violations} condition(s) violated.", err=True)
+            click.echo(
+                f"  Z3 verification FAILED: {total_violations} condition(s) violated.", err=True
+            )
             sys.exit(EXIT_FAILURE)
 
         fuzzer, compiled = _try_c_backend()
@@ -239,7 +256,9 @@ def _process_source(
             for op, result in fuzz_results.items():
                 status = "PASS" if result.all_passed else "FAIL"
                 tested = "C" if result.tested_c else "python-only"
-                _info(quiet, f"  Fuzz {op}: {status} ({result.passed}/{result.iterations}, {tested})")
+                _info(
+                    quiet, f"  Fuzz {op}: {status} ({result.passed}/{result.iterations}, {tested})"
+                )
             if compiled is None and not any(r.tested_c for r in fuzz_results.values()):
                 click.echo(
                     "\nWarning: no C compiler available; differential results were "
@@ -278,67 +297,111 @@ def main(ctx: click.Context, quiet: bool, verbose: bool) -> None:
 
 @main.command()
 @click.argument("source_dir", type=click.Path(exists=True, file_okay=False))
-@click.option("--target", type=click.Choice(["generic-c99", "bare-arm-q31", "bare-arm-q15"]),
-              default="generic-c99", help="Target profile for generated code")
-@click.option("-o", "--output", type=click.Path(), default="out",
-              help="Output directory")
-@click.option("--embed-assets", is_flag=True, default=False,
-              help="Embed data assets instead of erroring")
-@click.option("--amalgamate", is_flag=True, default=False,
-              help="Generate single .c/.h output")
-@click.option("--verbose", is_flag=True, default=False,
-              help="Show detailed diagnostics")
-@click.option("--provenance-only", is_flag=True, default=False,
-              help="Generate manifest without code")
-@click.option("--entry", "entry", multiple=True, metavar="NAME",
-              help="Only emit this top-level function (repeatable); unreachable code is pruned")
+@click.option(
+    "--target",
+    type=click.Choice(["generic-c99", "bare-arm-q31", "bare-arm-q15"]),
+    default="generic-c99",
+    help="Target profile for generated code",
+)
+@click.option("-o", "--output", type=click.Path(), default="out", help="Output directory")
+@click.option(
+    "--embed-assets", is_flag=True, default=False, help="Embed data assets instead of erroring"
+)
+@click.option("--amalgamate", is_flag=True, default=False, help="Generate single .c/.h output")
+@click.option("--verbose", is_flag=True, default=False, help="Show detailed diagnostics")
+@click.option(
+    "--provenance-only", is_flag=True, default=False, help="Generate manifest without code"
+)
+@click.option(
+    "--entry",
+    "entry",
+    multiple=True,
+    metavar="NAME",
+    help="Only emit this top-level function (repeatable); unreachable code is pruned",
+)
 @click.pass_context
-def extract(ctx: click.Context, source_dir: str, target: str, output: str, embed_assets: bool,
-            amalgamate: bool, verbose: bool, provenance_only: bool, entry: tuple) -> None:
+def extract(
+    ctx: click.Context,
+    source_dir: str,
+    target: str,
+    output: str,
+    embed_assets: bool,
+    amalgamate: bool,
+    verbose: bool,
+    provenance_only: bool,
+    entry: tuple,
+) -> None:
     """Library extraction mode: extract math kernels from a directory."""
     _process_source(
-        source_dir=source_dir, target=target, output=output,
-        embed_assets=embed_assets, amalgamate=amalgamate,
-        verbose=verbose or ctx.obj["verbose"], provenance_only=provenance_only,
-        quiet=ctx.obj["quiet"], command_name="purce extract",
+        source_dir=source_dir,
+        target=target,
+        output=output,
+        embed_assets=embed_assets,
+        amalgamate=amalgamate,
+        verbose=verbose or ctx.obj["verbose"],
+        provenance_only=provenance_only,
+        quiet=ctx.obj["quiet"],
+        command_name="purce extract",
         entry_names=list(entry),
     )
 
 
 @main.command()
 @click.argument("source_dir", type=click.Path(exists=True, file_okay=False))
-@click.option("--target", type=click.Choice(["generic-c99", "bare-arm-q31", "bare-arm-q15"]),
-              default="generic-c99", help="Target profile for generated code")
-@click.option("-o", "--output", type=click.Path(), default="out",
-              help="Output directory")
-@click.option("--embed-assets", is_flag=True, default=False,
-              help="Embed data assets instead of erroring")
-@click.option("--amalgamate", is_flag=True, default=False,
-              help="Generate single .c/.h output")
-@click.option("--verbose", is_flag=True, default=False,
-              help="Show detailed diagnostics")
-@click.option("--verify", is_flag=True, default=False,
-              help="Run Z3 verification and differential fuzzing")
-@click.option("--entry", "entry", multiple=True, metavar="NAME",
-              help="Only emit this top-level function (repeatable); unreachable code is pruned")
+@click.option(
+    "--target",
+    type=click.Choice(["generic-c99", "bare-arm-q31", "bare-arm-q15"]),
+    default="generic-c99",
+    help="Target profile for generated code",
+)
+@click.option("-o", "--output", type=click.Path(), default="out", help="Output directory")
+@click.option(
+    "--embed-assets", is_flag=True, default=False, help="Embed data assets instead of erroring"
+)
+@click.option("--amalgamate", is_flag=True, default=False, help="Generate single .c/.h output")
+@click.option("--verbose", is_flag=True, default=False, help="Show detailed diagnostics")
+@click.option(
+    "--verify", is_flag=True, default=False, help="Run Z3 verification and differential fuzzing"
+)
+@click.option(
+    "--entry",
+    "entry",
+    multiple=True,
+    metavar="NAME",
+    help="Only emit this top-level function (repeatable); unreachable code is pruned",
+)
 @click.pass_context
-def compile(ctx: click.Context, source_dir: str, target: str, output: str, embed_assets: bool,
-            amalgamate: bool, verbose: bool, verify: bool, entry: tuple) -> None:
+def compile(
+    ctx: click.Context,
+    source_dir: str,
+    target: str,
+    output: str,
+    embed_assets: bool,
+    amalgamate: bool,
+    verbose: bool,
+    verify: bool,
+    entry: tuple,
+) -> None:
     """User code compilation mode: compile a Python project to C99."""
     _process_source(
-        source_dir=source_dir, target=target, output=output,
-        embed_assets=embed_assets, amalgamate=amalgamate,
-        verbose=verbose or ctx.obj["verbose"], verify=verify,
-        quiet=ctx.obj["quiet"], command_name="purce compile",
+        source_dir=source_dir,
+        target=target,
+        output=output,
+        embed_assets=embed_assets,
+        amalgamate=amalgamate,
+        verbose=verbose or ctx.obj["verbose"],
+        verify=verify,
+        quiet=ctx.obj["quiet"],
+        command_name="purce compile",
         entry_names=list(entry),
     )
 
 
 @main.command()
-@click.option("--iterations", type=int, default=10000,
-              help="Number of fuzzing iterations per operation")
-@click.option("--seed", type=int, default=None,
-              help="Random seed for reproducible fuzzing")
+@click.option(
+    "--iterations", type=int, default=10000, help="Number of fuzzing iterations per operation"
+)
+@click.option("--seed", type=int, default=None, help="Random seed for reproducible fuzzing")
 @click.pass_context
 def verify(ctx: click.Context, iterations: int, seed: int | None) -> None:
     """Run verification suite: Z3 bounds checking + differential fuzzing.
@@ -353,7 +416,9 @@ def verify(ctx: click.Context, iterations: int, seed: int | None) -> None:
 
     verifier = Z3Verifier()
     if not verifier.available:
-        click.echo("Z3 solver: not available (install z3-solver); verification cannot run.", err=True)
+        click.echo(
+            "Z3 solver: not available (install z3-solver); verification cannot run.", err=True
+        )
         sys.exit(EXIT_FAILURE)
 
     click.echo("Z3 solver: available")
@@ -438,25 +503,45 @@ def _representative_verification_graph() -> MathIRGraph:
     graph.add_node(node("element_sub"))
     graph.add_node(node("element_mul"))
     graph.add_node(node("element_div"))
-    graph.add_node(node("matmul",
-                        inputs=[("A", Dtype.FLOAT64, "(m,k)"), ("B", Dtype.FLOAT64, "(k,n)")],
-                        outputs=[("C", Dtype.FLOAT64, "(m,n)")]))
+    graph.add_node(
+        node(
+            "matmul",
+            inputs=[("A", Dtype.FLOAT64, "(m,k)"), ("B", Dtype.FLOAT64, "(k,n)")],
+            outputs=[("C", Dtype.FLOAT64, "(m,n)")],
+        )
+    )
     graph.add_node(node("reduce_sum"))
     graph.add_node(node("reduce_mean"))
     graph.add_node(node("reduce_max"))
     graph.add_node(node("reduce_min"))
-    graph.add_node(node("linalg_solve",
-                        inputs=[("A", Dtype.FLOAT64, "(n,n)"), ("b", Dtype.FLOAT64, "(n,)")],
-                        outputs=[("x", Dtype.FLOAT64, "(n,)")]))
-    graph.add_node(node("linalg_inv",
-                        inputs=[("A", Dtype.FLOAT64, "(n,n)")],
-                        outputs=[("inv", Dtype.FLOAT64, "(n,n)")]))
-    graph.add_node(node("fft",
-                        inputs=[("real", Dtype.FLOAT64, "array"), ("imag", Dtype.FLOAT64, "array")],
-                        outputs=[("out_real", Dtype.FLOAT64, "array"), ("out_imag", Dtype.FLOAT64, "array")]))
-    graph.add_node(node("ifft",
-                        inputs=[("real", Dtype.FLOAT64, "array"), ("imag", Dtype.FLOAT64, "array")],
-                        outputs=[("out_real", Dtype.FLOAT64, "array"), ("out_imag", Dtype.FLOAT64, "array")]))
+    graph.add_node(
+        node(
+            "linalg_solve",
+            inputs=[("A", Dtype.FLOAT64, "(n,n)"), ("b", Dtype.FLOAT64, "(n,)")],
+            outputs=[("x", Dtype.FLOAT64, "(n,)")],
+        )
+    )
+    graph.add_node(
+        node(
+            "linalg_inv",
+            inputs=[("A", Dtype.FLOAT64, "(n,n)")],
+            outputs=[("inv", Dtype.FLOAT64, "(n,n)")],
+        )
+    )
+    graph.add_node(
+        node(
+            "fft",
+            inputs=[("real", Dtype.FLOAT64, "array"), ("imag", Dtype.FLOAT64, "array")],
+            outputs=[("out_real", Dtype.FLOAT64, "array"), ("out_imag", Dtype.FLOAT64, "array")],
+        )
+    )
+    graph.add_node(
+        node(
+            "ifft",
+            inputs=[("real", Dtype.FLOAT64, "array"), ("imag", Dtype.FLOAT64, "array")],
+            outputs=[("out_real", Dtype.FLOAT64, "array"), ("out_imag", Dtype.FLOAT64, "array")],
+        )
+    )
     return graph
 
 

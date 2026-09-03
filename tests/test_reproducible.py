@@ -27,9 +27,7 @@ from benchmarks.reproducible import (
     HarnessReport,
 )
 
-NEEDS_GCC = pytest.mark.skipif(
-    shutil.which("gcc") is None, reason="gcc not available on this host"
-)
+NEEDS_GCC = pytest.mark.skipif(shutil.which("gcc") is None, reason="gcc not available on this host")
 
 STABLE_C_BODY = (
     "int add_arrays(const double *restrict a, const double *restrict b,\n"
@@ -117,12 +115,8 @@ class TestNormalizeContent:
         assert '"source": "x.py"' in normalized
         assert '"algorithm": "element_add"' in normalized
 
-    def test_replaces_checkout_root_with_placeholder(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setattr(
-            reproducible, "_CHECKOUT_ROOT", "/home/ci/checkouts/purce"
-        )
+    def test_replaces_checkout_root_with_placeholder(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr(reproducible, "_CHECKOUT_ROOT", "/home/ci/checkouts/purce")
         text = (
             "ORIGIN FILE: /home/ci/checkouts/purce/benchmarks/corpus/matmul.py:12\n"
             "SOURCE FILE: /opt/shared/deps/helper.py\n"
@@ -237,8 +231,18 @@ class TestRunExtraction:
         gcc = shutil.which("gcc")
         for c in sorted(out_dir.glob("*.c")):
             result = subprocess.run(
-                [gcc, "-std=c99", "-O2", "-Wall", "-Wextra", "-pedantic", "-c",
-                 str(c), "-o", os.devnull],
+                [
+                    gcc,
+                    "-std=c99",
+                    "-O2",
+                    "-Wall",
+                    "-Wextra",
+                    "-pedantic",
+                    "-c",
+                    str(c),
+                    "-o",
+                    os.devnull,
+                ],
                 capture_output=True,
                 text=True,
                 timeout=120,
@@ -261,7 +265,9 @@ class TestBaselineVerification:
 
     def test_missing_keys_produce_none_deviations(self) -> None:
         report = _make_report()
-        deviations = reproducible.verify_against_baseline(report, {"content_sha256": report.content_sha256})
+        deviations = reproducible.verify_against_baseline(
+            report, {"content_sha256": report.content_sha256}
+        )
         assert "compile.total None != 2" in deviations
         assert "compile.failed None != 0" in deviations
         assert "totals.c_files None != 2" in deviations
@@ -295,22 +301,30 @@ class TestPortabilityAcrossCheckouts:
         reproducible.run_extraction(checkout_a, out_a)
         reproducible.run_extraction(checkout_b, out_b)
 
-        assert sorted(p.name for p in out_a.glob("*.c")) == sorted(p.name for p in out_b.glob("*.c"))
+        assert sorted(p.name for p in out_a.glob("*.c")) == sorted(
+            p.name for p in out_b.glob("*.c")
+        )
         assert _origin_offsets(out_a) == _origin_offsets(out_b)
 
         raw_a = reproducible.content_hash(out_a)
         raw_b = reproducible.content_hash(out_b)
         assert raw_a != raw_b
 
-        monkeypatch.setattr(reproducible, "_CHECKOUT_ROOT", str(checkout_a.parent).replace("\\", "/"))
+        monkeypatch.setattr(
+            reproducible, "_CHECKOUT_ROOT", str(checkout_a.parent).replace("\\", "/")
+        )
         normalized_a = reproducible.content_hash(out_a)
-        monkeypatch.setattr(reproducible, "_CHECKOUT_ROOT", str(checkout_b.parent).replace("\\", "/"))
+        monkeypatch.setattr(
+            reproducible, "_CHECKOUT_ROOT", str(checkout_b.parent).replace("\\", "/")
+        )
         normalized_b = reproducible.content_hash(out_b)
         assert normalized_a == normalized_b
 
     def test_load_baseline_round_trip(self, tmp_path: Path) -> None:
         baseline_path = tmp_path / "baseline.json"
-        baseline_path.write_text(json.dumps({"seed": 42, "content_sha256": "abc"}), encoding="utf-8")
+        baseline_path.write_text(
+            json.dumps({"seed": 42, "content_sha256": "abc"}), encoding="utf-8"
+        )
         loaded = reproducible.load_baseline(baseline_path)
         assert loaded == {"seed": 42, "content_sha256": "abc"}
 
@@ -336,9 +350,11 @@ class TestHashSeedIndependence:
         root = Path(__file__).resolve().parents[1]
         for seed, out in (("1", out_a), ("2", out_b)):
             r = subprocess.run(
-                [sys.executable, "-m", "purce.cli", "extract",
-                 str(corpus), "-o", str(out)],
-                cwd=root, capture_output=True, text=True, timeout=600,
+                [sys.executable, "-m", "purce.cli", "extract", str(corpus), "-o", str(out)],
+                cwd=root,
+                capture_output=True,
+                text=True,
+                timeout=600,
                 env={"PYTHONHASHSEED": seed, **{k: v for k, v in __import__("os").environ.items()}},
             )
             assert r.returncode == 0, r.stderr[-500:]

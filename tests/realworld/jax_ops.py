@@ -74,12 +74,14 @@ def jax_gelu(x: np.ndarray) -> np.ndarray:
             0.5,
             np.add(
                 1.0,
-                np.tanh(np.multiply(
-                    np.sqrt(np.divide(2.0, np.pi)),
-                    np.add(x, np.multiply(0.044715, np.power(x, 3.0)))
-                ))
-            )
-        )
+                np.tanh(
+                    np.multiply(
+                        np.sqrt(np.divide(2.0, np.pi)),
+                        np.add(x, np.multiply(0.044715, np.power(x, 3.0))),
+                    )
+                ),
+            ),
+        ),
     )
 
 
@@ -99,18 +101,17 @@ def jax_rotary_embedding(x: np.ndarray, theta: float = 10000.0) -> np.ndarray:
     sin_cache = np.sin(angles)
     out = np.zeros_like(x)
     out[..., 0::2] = np.subtract(
-        np.multiply(x[..., 0::2], cos_cache),
-        np.multiply(x[..., 1::2], sin_cache)
+        np.multiply(x[..., 0::2], cos_cache), np.multiply(x[..., 1::2], sin_cache)
     )
     out[..., 1::2] = np.add(
-        np.multiply(x[..., 0::2], sin_cache),
-        np.multiply(x[..., 1::2], cos_cache)
+        np.multiply(x[..., 0::2], sin_cache), np.multiply(x[..., 1::2], cos_cache)
     )
     return out
 
 
-def jax_group_norm(x: np.ndarray, gamma: np.ndarray, beta: np.ndarray,
-                   num_groups: int = 32) -> np.ndarray:
+def jax_group_norm(
+    x: np.ndarray, gamma: np.ndarray, beta: np.ndarray, num_groups: int = 32
+) -> np.ndarray:
     """Group normalization."""
     shape = x.shape
     channels = shape[-1]
@@ -130,7 +131,10 @@ def jax_group_norm(x: np.ndarray, gamma: np.ndarray, beta: np.ndarray,
 def jax_spectral_norm(W: np.ndarray, u: np.ndarray, n_iters: int = 1) -> np.ndarray:
     """Spectral normalization of weight matrix."""
     for _ in range(n_iters):
-        v = np.divide(np.matmul(np.transpose(W), u), np.add(np.linalg.norm(np.matmul(np.transpose(W), u)), 1e-7))
+        v = np.divide(
+            np.matmul(np.transpose(W), u),
+            np.add(np.linalg.norm(np.matmul(np.transpose(W), u)), 1e-7),
+        )
         u = np.divide(np.matmul(W, v), np.add(np.linalg.norm(np.matmul(W, v)), 1e-7))
     sigma = np.dot(np.matmul(np.transpose(W), u), v)
     return np.divide(W, np.add(sigma, 1e-7))

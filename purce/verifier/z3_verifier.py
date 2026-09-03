@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 
 try:
     import z3
+
     Z3_AVAILABLE = True
 except ImportError:
     Z3_AVAILABLE = False
@@ -167,16 +168,18 @@ class Z3Verifier:
                     "a": _model_val(model, a),
                     "b": _model_val(model, b),
                 }
-            conditions.append(VerificationCondition(
-                name=f"{node.algorithm}_overflow_{bound_name}",
-                description=(
-                    f"Verify {node.algorithm} cannot overflow IEEE-754 {bound_name} "
-                    f"for inputs |x| <= {safe:.0e}"
-                ),
-                formula=f"|{node.algorithm}(a, b)| <= {in_max:.3e} for |a|,|b| <= {safe:.0e}",
-                result="SAT" if result == z3.sat else "UNSAT",
-                counterexample=counterexample,
-            ))
+            conditions.append(
+                VerificationCondition(
+                    name=f"{node.algorithm}_overflow_{bound_name}",
+                    description=(
+                        f"Verify {node.algorithm} cannot overflow IEEE-754 {bound_name} "
+                        f"for inputs |x| <= {safe:.0e}"
+                    ),
+                    formula=f"|{node.algorithm}(a, b)| <= {in_max:.3e} for |a|,|b| <= {safe:.0e}",
+                    result="SAT" if result == z3.sat else "UNSAT",
+                    counterexample=counterexample,
+                )
+            )
 
         return conditions
 
@@ -231,19 +234,21 @@ class Z3Verifier:
                     "y": _model_val(model, y),
                     "k": float(model[k].as_long()),
                 }
-            conditions.append(VerificationCondition(
-                name=f"matmul_accumulation_{bound_name}",
-                description=(
-                    f"Verify matmul dot product cannot overflow IEEE-754 {bound_name} "
-                    f"for |x|,|y| <= {safe:.0e} and k <= {MAX_MATMUL_K}"
-                ),
-                formula=(
-                    f"k * |x*y| <= {in_max:.3e} for |x|,|y| <= {safe:.0e}, "
-                    f"1 <= k <= {MAX_MATMUL_K}"
-                ),
-                result="SAT" if result == z3.sat else "UNSAT",
-                counterexample=counterexample,
-            ))
+            conditions.append(
+                VerificationCondition(
+                    name=f"matmul_accumulation_{bound_name}",
+                    description=(
+                        f"Verify matmul dot product cannot overflow IEEE-754 {bound_name} "
+                        f"for |x|,|y| <= {safe:.0e} and k <= {MAX_MATMUL_K}"
+                    ),
+                    formula=(
+                        f"k * |x*y| <= {in_max:.3e} for |x|,|y| <= {safe:.0e}, "
+                        f"1 <= k <= {MAX_MATMUL_K}"
+                    ),
+                    result="SAT" if result == z3.sat else "UNSAT",
+                    counterexample=counterexample,
+                )
+            )
 
         return conditions
 
@@ -297,27 +302,31 @@ class Z3Verifier:
         n = z3.Int("n")
         s.add(n >= 2, n <= 64)
         result = s.check()
-        conditions.append(VerificationCondition(
-            name=f"{node.algorithm}_dimension_bounds",
-            description=(
-                f"Verify {node.algorithm} matrix dimension domain [2, 64] is "
-                "non-empty and consistent."
-            ),
-            formula="2 <= n <= 64 (domain non-empty)",
-            result="UNSAT" if result == z3.sat else "SAT",
-        ))
+        conditions.append(
+            VerificationCondition(
+                name=f"{node.algorithm}_dimension_bounds",
+                description=(
+                    f"Verify {node.algorithm} matrix dimension domain [2, 64] is "
+                    "non-empty and consistent."
+                ),
+                formula="2 <= n <= 64 (domain non-empty)",
+                result="UNSAT" if result == z3.sat else "SAT",
+            )
+        )
 
         # Non-singularity is data-dependent and cannot be proved from free
         # symbols; report honestly as UNKNOWN (must be enforced at runtime).
-        conditions.append(VerificationCondition(
-            name=f"{node.algorithm}_non_singular",
-            description=(
-                f"Verify {node.algorithm} matrix is non-singular. Data-dependent; "
-                "not decidable statically. Runtime pivot checks are required."
-            ),
-            formula="det(A) != 0 (data-dependent)",
-            result="UNKNOWN",
-        ))
+        conditions.append(
+            VerificationCondition(
+                name=f"{node.algorithm}_non_singular",
+                description=(
+                    f"Verify {node.algorithm} matrix is non-singular. Data-dependent; "
+                    "not decidable statically. Runtime pivot checks are required."
+                ),
+                formula="det(A) != 0 (data-dependent)",
+                result="UNKNOWN",
+            )
+        )
 
         return conditions
 
@@ -330,28 +339,32 @@ class Z3Verifier:
         result = s.check()
         # Feasibility probe: SAT (a valid n exists) => domain is valid => safe.
         # UNSAT (no valid n) => contradictory/empty domain => violated.
-        conditions.append(VerificationCondition(
-            name=f"{node.algorithm}_input_bounds",
-            description=(
-                f"Verify {node.algorithm} input size domain is non-empty and "
-                "within [1, 1000000]"
-            ),
-            formula="1 <= n <= 1000000",
-            result="UNSAT" if result == z3.sat else "SAT",
-        ))
+        conditions.append(
+            VerificationCondition(
+                name=f"{node.algorithm}_input_bounds",
+                description=(
+                    f"Verify {node.algorithm} input size domain is non-empty and "
+                    "within [1, 1000000]"
+                ),
+                formula="1 <= n <= 1000000",
+                result="UNSAT" if result == z3.sat else "SAT",
+            )
+        )
 
         if node.algorithm in ("reduce_mean",):
             # The same probe proves the domain excludes n == 0, so the
             # reduce_mean division is only ever performed on n >= 1.
-            conditions.append(VerificationCondition(
-                name="reduce_mean_nonempty",
-                description=(
-                    "Verify reduce_mean only receives non-empty input (n >= 1); "
-                    "n == 0 divides by zero and is excluded from the domain."
-                ),
-                formula="n >= 1",
-                result="UNSAT" if result == z3.sat else "SAT",
-            ))
+            conditions.append(
+                VerificationCondition(
+                    name="reduce_mean_nonempty",
+                    description=(
+                        "Verify reduce_mean only receives non-empty input (n >= 1); "
+                        "n == 0 divides by zero and is excluded from the domain."
+                    ),
+                    formula="n >= 1",
+                    result="UNSAT" if result == z3.sat else "SAT",
+                )
+            )
 
         return conditions
 
@@ -369,40 +382,44 @@ class Z3Verifier:
         s = self._new_solver()
         s.add(n >= 2, n <= 131072)
         p = z3.Int("p")
-        s.add(p >= 0, 2 ** p <= n, 2 ** (p + 1) > n)
-        s.add(2 ** p != n)
+        s.add(p >= 0, 2**p <= n, 2 ** (p + 1) > n)
+        s.add(2**p != n)
         result = s.check()
         counterexample = None
         if result == z3.sat:
             model = s.model()
             counterexample = {"n": float(model[n].as_long())}
-        conditions.append(VerificationCondition(
-            name=f"{node.algorithm}_power_of_two",
-            description=(
-                f"Verify {node.algorithm} only accepts power-of-two sizes in "
-                "[2, 131072]. Non-power-of-two sizes are rejected by the generated "
-                "runtime guard (zero-filled output). Not statically provable — "
-                "relies on the guard in the emitted kernel; verified by "
-                "differential fuzzing over the power-of-two domain."
-            ),
-            formula=(
-                "n is power of 2 for 2 <= n <= 131072 "
-                "(enforced by runtime guard, not provable via SMT)"
-            ),
-            result="UNKNOWN",
-            counterexample=counterexample,
-        ))
+        conditions.append(
+            VerificationCondition(
+                name=f"{node.algorithm}_power_of_two",
+                description=(
+                    f"Verify {node.algorithm} only accepts power-of-two sizes in "
+                    "[2, 131072]. Non-power-of-two sizes are rejected by the generated "
+                    "runtime guard (zero-filled output). Not statically provable — "
+                    "relies on the guard in the emitted kernel; verified by "
+                    "differential fuzzing over the power-of-two domain."
+                ),
+                formula=(
+                    "n is power of 2 for 2 <= n <= 131072 "
+                    "(enforced by runtime guard, not provable via SMT)"
+                ),
+                result="UNKNOWN",
+                counterexample=counterexample,
+            )
+        )
 
         return conditions
 
     def _fallback_verify(self, node: MathIRNode) -> VerificationReport:
         report = VerificationReport(node_id=node.node_id)
-        report.conditions.append(VerificationCondition(
-            name="z3_unavailable",
-            description="Z3 solver not installed; using fallback verification",
-            formula="N/A",
-            result="UNKNOWN",
-        ))
+        report.conditions.append(
+            VerificationCondition(
+                name="z3_unavailable",
+                description="Z3 solver not installed; using fallback verification",
+                formula="N/A",
+                result="UNKNOWN",
+            )
+        )
         report.all_verified = False
         return report
 

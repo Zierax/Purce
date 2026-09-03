@@ -50,8 +50,9 @@ def scipy_resample(signal: np.ndarray, num: int) -> np.ndarray:
         idx = int(pos)
         frac = pos - idx
         if idx + 1 < n:
-            result[i] = np.add(np.multiply(signal[idx], 1.0 - frac),
-                               np.multiply(signal[idx + 1], frac))
+            result[i] = np.add(
+                np.multiply(signal[idx], 1.0 - frac), np.multiply(signal[idx + 1], frac)
+            )
         else:
             result[i] = signal[idx]
     return result
@@ -152,8 +153,9 @@ def scipy_svd_power_iteration(A: np.ndarray, n: int, num_iters: int = 100) -> np
     return singular_values
 
 
-def scipy_gradient_descent(f_grad, x0: np.ndarray, lr: float = 0.01,
-                           n_steps: int = 100) -> np.ndarray:
+def scipy_gradient_descent(
+    f_grad, x0: np.ndarray, lr: float = 0.01, n_steps: int = 100
+) -> np.ndarray:
     """Simple gradient descent pattern."""
     x = np.copy(x0)
     for _ in range(n_steps):
@@ -185,14 +187,13 @@ def scipy_bisect(f, a: float, b: float, n_iters: int = 50) -> float:
     return np.add(a, np.multiply(0.5, np.subtract(b, a)))
 
 
-def scipy_stft(signal: np.ndarray, window_size: int = 256,
-               hop_size: int = 128) -> np.ndarray:
+def scipy_stft(signal: np.ndarray, window_size: int = 256, hop_size: int = 128) -> np.ndarray:
     """Short-time Fourier Transform (magnitude only)."""
     num_frames = (len(signal) - window_size) // hop_size + 1
     spec = np.zeros((num_frames, window_size // 2 + 1))
     for i in range(num_frames):
         start = i * hop_size
-        frame = signal[start:start + window_size]
+        frame = signal[start : start + window_size]
         fft_result = np.zeros(window_size, dtype=np.complex128)
         for k in range(window_size):
             s = 0.0 + 0.0j
@@ -200,7 +201,7 @@ def scipy_stft(signal: np.ndarray, window_size: int = 256,
                 angle = -2.0 * np.pi * k * j / window_size
                 s += frame[j] * np.exp(np.multiply(1j, angle))
             fft_result[k] = s
-        spec[i, :] = np.abs(fft_result[:window_size // 2 + 1])
+        spec[i, :] = np.abs(fft_result[: window_size // 2 + 1])
     return spec
 
 
@@ -210,8 +211,8 @@ def scipy_welch_psd(signal: np.ndarray, nperseg: int = 256) -> np.ndarray:
     psd = np.zeros(nperseg // 2 + 1)
     for i in range(n_segments):
         start = i * nperseg
-        segment = signal[start:start + nperseg]
+        segment = signal[start : start + nperseg]
         fft_mag = np.abs(np.fft.fft(segment))
-        psd += np.power(fft_mag[:nperseg // 2 + 1], 2.0)
+        psd += np.power(fft_mag[: nperseg // 2 + 1], 2.0)
     psd = np.divide(psd, n_segments)
     return psd

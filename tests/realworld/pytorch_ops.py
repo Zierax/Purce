@@ -31,12 +31,16 @@ def torch_selu(x: np.ndarray) -> np.ndarray:
     """SELU: lambda * (x if x > 0 else alpha * (exp(x) - 1))."""
     alpha = 1.6732632423543772
     scale = 1.0507009873554805
-    return np.multiply(scale, np.where(np.greater(x, 0.0), x, np.multiply(alpha, np.subtract(np.exp(x), 1.0))))
+    return np.multiply(
+        scale, np.where(np.greater(x, 0.0), x, np.multiply(alpha, np.subtract(np.exp(x), 1.0)))
+    )
 
 
 def torch_celu(x: np.ndarray, alpha: float = 1.0) -> np.ndarray:
     """CELU: max(0, x) + min(0, alpha * (exp(x/alpha) - 1))."""
-    return np.maximum(x, 0.0) + np.minimum(0.0, np.multiply(alpha, np.subtract(np.exp(np.divide(x, alpha)), 1.0)))
+    return np.maximum(x, 0.0) + np.minimum(
+        0.0, np.multiply(alpha, np.subtract(np.exp(np.divide(x, alpha)), 1.0))
+    )
 
 
 def torch_gelu_approx(x: np.ndarray) -> np.ndarray:
@@ -45,8 +49,8 @@ def torch_gelu_approx(x: np.ndarray) -> np.ndarray:
         0.5,
         np.multiply(
             np.add(x, np.multiply(0.044715, np.power(x, 3.0))),
-            np.tanh(np.multiply(0.7978845608, np.add(x, np.multiply(0.044715, np.power(x, 3.0)))))
-        )
+            np.tanh(np.multiply(0.7978845608, np.add(x, np.multiply(0.044715, np.power(x, 3.0))))),
+        ),
     )
 
 
@@ -74,11 +78,17 @@ def torch_nll_loss(log_probs: np.ndarray, targets: np.ndarray) -> np.ndarray:
     return np.mean(losses)
 
 
-def torch_adam_step(params: np.ndarray, grads: np.ndarray,
-                    m: np.ndarray, v: np.ndarray,
-                    t: int, lr: float = 0.001,
-                    beta1: float = 0.9, beta2: float = 0.999,
-                    eps: float = 1e-8) -> tuple:
+def torch_adam_step(
+    params: np.ndarray,
+    grads: np.ndarray,
+    m: np.ndarray,
+    v: np.ndarray,
+    t: int,
+    lr: float = 0.001,
+    beta1: float = 0.9,
+    beta2: float = 0.999,
+    eps: float = 1e-8,
+) -> tuple:
     """Adam optimizer single step."""
     m_new = np.add(np.multiply(beta1, m), np.multiply(1.0 - beta1, grads))
     v_new = np.add(np.multiply(beta2, v), np.multiply(1.0 - beta2, np.power(grads, 2.0)))
@@ -93,8 +103,9 @@ def torch_linear_forward(x: np.ndarray, weight: np.ndarray, bias: np.ndarray) ->
     return np.add(np.matmul(x, np.transpose(weight)), bias)
 
 
-def torch_group_norm_forward(x: np.ndarray, weight: np.ndarray, bias: np.ndarray,
-                             num_groups: int = 32, eps: float = 1e-5) -> np.ndarray:
+def torch_group_norm_forward(
+    x: np.ndarray, weight: np.ndarray, bias: np.ndarray, num_groups: int = 32, eps: float = 1e-5
+) -> np.ndarray:
     """Group normalization."""
     N, C, H, W = x.shape
     x_flat = x.reshape(N, num_groups, C // num_groups, H, W)
@@ -114,8 +125,10 @@ def torch_cosine_embedding_loss(x1: np.ndarray, x2: np.ndarray, y: np.ndarray) -
     """Cosine embedding loss."""
     cos_sim = np.divide(
         np.sum(np.multiply(x1, x2)),
-        np.add(np.multiply(np.sqrt(np.sum(np.power(x1, 2.0))),
-                            np.sqrt(np.sum(np.power(x2, 2.0)))), 1e-7)
+        np.add(
+            np.multiply(np.sqrt(np.sum(np.power(x1, 2.0))), np.sqrt(np.sum(np.power(x2, 2.0)))),
+            1e-7,
+        ),
     )
     return np.mean(np.maximum(np.subtract(0.0, cos_sim), 0.0))
 

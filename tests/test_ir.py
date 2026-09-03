@@ -1,4 +1,3 @@
-
 from purce.ir.builder import MathIRBuilder
 from purce.ir.nodes import (
     Dtype,
@@ -37,11 +36,13 @@ class TestMathIRNode:
 
     def test_node_with_reductions(self) -> None:
         node = _make_node("b")
-        node.reductions.append(ReductionEntry(
-            rule="inline",
-            description="inlined helper",
-            original="helper_fn",
-        ))
+        node.reductions.append(
+            ReductionEntry(
+                rule="inline",
+                description="inlined helper",
+                original="helper_fn",
+            )
+        )
         assert len(node.reductions) == 1
         assert node.reductions[0].rule == "inline"
 
