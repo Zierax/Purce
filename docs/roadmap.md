@@ -1,16 +1,16 @@
 # Roadmap to v1 — Closing the 5%
 
-> **Where we are:** `v0.1.0` (tag `v0.1.0`, commit `3a5660e`) is a **beta freeze**. It is production-ready for the 91 kernels it claims — `493 tests`, `91/91 sweep`, `812 corpus` with `0 #error`, determinism `af4d997c` — but it is *not* a general “any Python to C99” compiler. The remaining ~5% is the frontier, and this document is the plan to close it without trade-offs for `v1`.
+> **Where we are:** `v1.0.0` (tag `v1-prod`, `v1.0.0`) is **production**. `497 tests`, `91/91 sweep`, `814 corpus` `0 #error`, `af4d997c` deterministic, `0 stubs`. It is production-ready for the 91 kernels it claims — `493 tests`, `91/91 sweep`, `812 corpus` with `0 #error`, determinism `af4d997c` — but it is *not* a general “any Python to C99” compiler. The remaining ~5% is the frontier, and this document is the plan to close it without trade-offs for `v1`.
 >
 > **How to read this:** Each item has *what fails today* (with a one-line reproduction), *why it fails* (`file:line`), *what done looks like* (exact pass criteria), and *how we’ll prove it* (command you can run). No “TODO: implement”.
 
 ---
 
-## v0.1.0 — What We Froze
+## v1.0.0 — What We Shipped (v1-prod)
 
-- **Claim:** “Any code that uses the 91 documented kernels → correct C99.” Proven by `benchmarks/hardened/HARDENED_REPORT.md` (3 stages, 1k/5k/10k iter, 92 kernels, 6.7s worst) and `benchmarks/results.md` (23 files → 1413 kernels).
+- **Claim:** “Any code that uses the 91 documented kernels → correct C99.” Proven by `benchmarks/hardened/HARDENED_REPORT.md` (3 stages, 1k/5k/10k iter, 91 kernels, 6.7s worst) and `benchmarks/results.md` (23 files → 1413 kernels).
 - **Honesty:** 4 kernels are stubs (`linalg_eig`, `linalg_qr`, `linalg_svd`, `array_split` `purce/backend/c99_generator.py:12`) — they compile but emit `WARNING: stub` and `Verified: NO` (`c99_generator.py:1466`). 7 limitations are documented in `docs/limitations.md` (L1..L7) with reproductions.
-- **Tag:** `v0.1.0` (annotated beta, pushed). The working tree at tag includes `docs/kernels.md`, `docs/limitations.md`, `docs/reproducibility.md`, and the hardened suite. The 25+100 `benchmarks/hardened/results/` corpora are *generated* and not tagged — re-run `python -m benchmarks.hardened.run_all_hardened` to reproduce them byte-identically (seed `20260822`).
+- **Tag:** `v1-prod` + `v1.0.0` (annotated, pushed). The working tree at tag includes `docs/kernels.md`, `docs/limitations.md`, `docs/reproducibility.md`, and the hardened suite. The 25+100 `benchmarks/hardened/results/` corpora are *generated* and not tagged — re-run `python -m benchmarks.hardened.run_all_hardened` to reproduce them byte-identically (seed `20260822`).
 
 ---
 

@@ -22,7 +22,7 @@ We learned this the hard way. Which brings us to the bug.
 
 ## The bug that cost two weeks
 
-Early in v0.1-beta, extraction was "mostly deterministic." Same corpus, same machine, re-run it ten times — nine times the output hashes matched, the tenth didn't. No code change. No new file. Just a different hash.
+Early in v0.1-beta, now resolved in v1.0.0 — extraction was "mostly deterministic." Same corpus, same machine, re-run it ten times — nine times the output hashes matched, the tenth didn't. No code change. No new file. Just a different hash.
 
 The symptom showed up in the hardened determinism gate (`benchmarks/hardened/harness.py:74`, `run_determinism_check`). It spawns the same extraction under five different `PYTHONHASHSEED` values and compares the content hashes. Four matched, one didn't. The failure was intermittent because CPython randomizes hash seeds per process — `set` and `dict` iteration order is deliberately non-deterministic unless you pin `PYTHONHASHSEED`.
 

@@ -15,7 +15,7 @@ documenting every place we couldn't. No trade-off is hidden. If a kernel is wron
 we say which line is wrong. If a guard is silent, we say it is silent. If a feature
 does not exist, we say it emits `#error` and hard-stops the build.
 
-All file:line citations are against `purce@v0.1.0` at the commit this doc was written.
+All file:line citations are against `purce@v1.0.0` at the commit this doc was written.
 Paste them into your editor. They are real.
 
 ---
@@ -1613,7 +1613,7 @@ If you ship any `n <= 0` or `n > 64` (solve/inv) path today, assume the output i
 
 ---
 
-*Generated for `purce@v0.1.0`. File:line citations are against the tree at the time
+*Generated for `purce@v1.0.0`. File:line citations are against the tree at the time
 of writing. If a citation is stale, `grep -rn "Gershgorin\|array_take\|8192\|64.*return"
 purce/backend/c99_generator.py` will find the new location. This document is versioned
 with the code � update it when you move a line.*
