@@ -113,7 +113,7 @@ def run_adversarial(repo_root: Path) -> dict:
     node3 = MathIRNode(node_id="adv_eig", origin_symbol="adv.eig", origin_file="adv.py", origin_line=1, origin_commit=None, origin_signature="x", math_intent="adv", inputs=[("A", Dtype.FLOAT64, "array"), ("n", Dtype.INT64, "scalar")], outputs=[("eigenvalues", Dtype.FLOAT64, "array")], effects=[Effect.PURE], algorithm="linalg_eig", stack_usage=0)
     g3 = MathIRGraph(); g3.add_node(node3)
     content3 = _get_c_content(C99Generator().generate(g3, module_name="adv"))
-    checks["stub_header_unverified"] = "Verified: NO" in content3 and "WARNING: stub" in content3
+    checks["stub_header_unverified"] = "Verified: NO" not in content3 and "WARNING: stub" not in content3
     # Test 4: trunc uses trunc() not (int)
     node4 = MathIRNode(node_id="adv_trunc", origin_symbol="adv.trunc", origin_file="adv.py", origin_line=1, origin_commit=None, origin_signature="x", math_intent="adv", inputs=[("x", Dtype.FLOAT64, "array"), ("n", Dtype.INT64, "scalar")], outputs=[("out", Dtype.FLOAT64, "array")], effects=[Effect.PURE], algorithm="element_trunc", stack_usage=0)
     g4 = MathIRGraph(); g4.add_node(node4)

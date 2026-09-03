@@ -1,27 +1,36 @@
 {
-  "purpose": "Committed reproducibility baseline for benchmarks/reproducible.py",
   "seed": 42,
-  "content_sha256": "0c2afafb6601308c2d268de03a841dd9d5497a603e481aa48f948ce12b836d96",
-  "totals": {
-    "c_files": 812,
-    "py_files": 14
-  },
-  "compile": {
-    "total": 812,
-    "passed": 812,
-    "failed": 0,
-    "failures": []
+  "fingerprint": {
+    "python_version": "3.13.14",
+    "numpy_version": "2.4.6",
+    "gcc_version": "gcc (Debian 15.3.0-1) 15.3.0",
+    "platform": "Linux-6.18.33.2-microsoft-standard-WSL2-x86_64-with-glibc2.42",
+    "cpu_count": 16,
+    "git_commit": "0387094d2fc7d50afa6c59e8f11aaeb794dd21eb",
+    "purce_version": "0.1.0"
   },
   "corpora": [
     {
       "corpus_dir": "/mnt/d/Axioms/Purce/benchmarks/corpus",
       "py_files": 14,
-      "c_files": 812,
+      "c_files": 814,
       "h_files": 1,
-      "prov_files": 812,
+      "prov_files": 814,
       "error_directives": 0,
       "unresolved_files": 0,
-      "total_c_lines": 36509
+      "total_c_lines": 37532
     }
-  ]
+  ],
+  "compile": {
+    "total": 814,
+    "passed": 814,
+    "failed": 0,
+    "failures": []
+  },
+  "content_sha256": "d42e8696c05ea03aa0b8cfc53a268ac1688548706ebe216aea8e0529c0e9cdfb",
+  "totals": {
+    "c_files": 814,
+    "py_files": 14
+  },
+  "timestamp_utc": "2026-09-03T15:28:10Z"
 }
